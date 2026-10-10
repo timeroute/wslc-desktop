@@ -12,7 +12,7 @@ use gpui_kit::component::{
     sidebar::{Sidebar, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuItem},
     v_flex,
 };
-use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::prelude::{FluentBuilder as _, InteractiveElement as _};
 use gpui_kit::*;
 use smol::Timer;
 
@@ -544,26 +544,44 @@ impl AppView {
 
     fn render_title_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = self.t();
-        TitleBar::new().child(
-            h_flex()
-                .id("title-bar-content")
-                .w_full()
-                .h_full()
-                .items_center()
-                .justify_end()
-                .pr_2()
-                .child(
-                    Button::new("titlebar-settings")
-                        .ghost()
-                        .icon(IconName::Settings)
-                        .tooltip(t.settings)
-                        .selected(self.section == Section::Settings)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.section = Section::Settings;
-                            cx.notify();
-                        })),
-                ),
-        )
+        // TitleBar content is WindowControlArea::Drag (HTCAPTION on Windows),
+        // which swallows clicks. Keep TitleBar empty for drag + window controls,
+        // and overlay the settings button as a sibling that `.occlude()`s the
+        // drag hitbox underneath.
+        div()
+            .relative()
+            .w_full()
+            .child(TitleBar::new())
+            .child(
+                h_flex()
+                    .id("title-bar-settings")
+                    .absolute()
+                    .inset_y_0()
+                    // Leave room for Windows min/max/close (~3 × 35px).
+                    .right(px(120.))
+                    .items_center()
+                    .occlude()
+                    .child(
+                        Button::new("titlebar-settings")
+                            .ghost()
+                            .icon(IconName::Settings)
+                            .tooltip(t.settings)
+                            .selected(self.section == Section::Settings)
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|this, _, window, cx| {
+                                    window.prevent_default();
+                                    cx.stop_propagation();
+                                    this.section = Section::Settings;
+                                    cx.notify();
+                                }),
+                            )
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.section = Section::Settings;
+                                cx.notify();
+                            })),
+                    ),
+            )
     }
 
     fn render_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
