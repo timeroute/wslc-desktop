@@ -2,7 +2,7 @@
 
 面向 Windows **WSL Containers（WSLc）** 的轻量级桌面管理器，基于 [GPUI Kit](https://gpui-kit.com)（Zed GPUI + 组件库）构建。
 
-在本机调用 `wslc` / `container` CLI，浏览与管理容器、镜像，并一键启动分离式容器。未检测到 WSLc 时自动进入 **Demo** 模式，方便在 macOS / Linux 上开发与预览 UI。
+在本机调用 `wslc` / `container` CLI，浏览与管理容器、镜像，并一键启动分离式容器。未检测到 WSLc 时自动进入 **Demo** 模式（内存样例数据），便于在尚未安装 WSL Containers 的 Windows 上预览 UI。
 
 ## 功能
 
@@ -14,51 +14,40 @@
 
 ## 环境要求
 
-### Windows（真实 WSLc）
-
-1. WSL **2.9.3+**（含 `wslc.exe`）
-2. Rust **1.92+**，MSVC 工具链
-3. Visual Studio 2022 C++ 工作负载 + Windows SDK + CMake
+1. Windows 10/11（x64）
+2. WSL **2.9.3+**（含 `wslc.exe`；真实管理容器时需要）
+3. Rust **1.92+**，MSVC 工具链
+4. Visual Studio 2022 C++ 工作负载 + Windows SDK + CMake
 
 ```powershell
 wsl --update
 wslc version
-```
-
-### Linux / macOS（Demo / 开发）
-
-安装 GPUI Kit 文档中的系统依赖后即可编译运行；界面会使用内置 Demo 数据。
-
-Ubuntu 示例：
-
-```bash
-sudo apt update
-sudo apt install -y gcc g++ clang libfontconfig-dev libwayland-dev \
-  libwebkit2gtk-4.1-dev libxkbcommon-x11-dev libx11-xcb-dev \
-  libssl-dev libzstd-dev libvulkan1
+rustup default stable-x86_64-pc-windows-msvc
 ```
 
 ## 运行
 
-```bash
+在 **x86_64-pc-windows-msvc** 工具链下：
+
+```powershell
 cargo run
 ```
 
 发布构建：
 
-```bash
+```powershell
 cargo build --release
 ```
 
 单元测试（CLI 表格解析与 Demo 状态机）：
 
-```bash
+```powershell
 cargo test
 ```
 
 ## 打包成 Windows 安装包（MSI）
 
-GPUI Kit 应用是原生 Windows 可执行文件，**需要在 Windows 本机（或 Windows CI）用 MSVC 工具链构建**，不能在 Linux/macOS 上直接打出可用的 MSI。
+GPUI Kit 应用是原生 Windows 可执行文件，需在 Windows 本机（或 Windows CI）用 MSVC 工具链构建并打 MSI。
 
 ### 1. 准备环境
 
@@ -121,12 +110,13 @@ cargo wix --sign
 
 GPUI 应用一般是单二进制；若运行时报缺 DLL，把对应 VC++ 运行库一并装上，或在 WiX/Inno 脚本里捆绑 redistributable。
 
-### 5. Buildkite 自动打 MSI（草稿已入库）
+### 5. Buildkite 自动打 MSI
 
-Origin **没有内置 Actions runner**，Windows 打包走 **Buildkite**（仓库 Apps / Marketplace 安装）。本仓库已提供草稿：
+Origin **没有内置 Actions runner**，Windows 打包走 **Buildkite**（仓库 Apps / Marketplace 安装）。本仓库已提供：
 
 ```text
 .buildkite/pipeline.yml
+.buildkite/scripts/upload-windows-msi.sh
 .buildkite/scripts/windows-msi.ps1
 .buildkite/scripts/annotate-msi-release.ps1
 ```
@@ -169,7 +159,7 @@ git push origin v0.1.0
 ## 项目结构
 
 ```text
-.buildkite/          # Buildkite Windows MSI 发布草稿
+.buildkite/          # Buildkite Windows MSI 发布流水线
 src/
   main.rs            # 窗口启动、主题与快捷键
   app.rs             # 侧栏 + 分区界面

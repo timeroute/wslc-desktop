@@ -1,0 +1,9 @@
+# Entry pipeline for WSLc Desktop.
+# Windows MSI steps are uploaded dynamically so a missing queue does not
+# fail `pipeline upload` validation (see scripts/upload-windows-msi.sh).
+steps:
+  - label: ":windows: Upload Windows MSI pipeline"
+    key: upload-windows-msi
+    command: bash .buildkite/scripts/upload-windows-msi.sh
+    agents:
+      queue: default

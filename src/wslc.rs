@@ -1,7 +1,7 @@
 //! Thin wrapper around the `wslc` / `container` CLI.
 //!
-//! On machines without WSLc (non-Windows, or older WSL), the client falls back
-//! to an in-memory demo dataset so the UI remains usable while developing.
+//! When WSLc is missing or unusable on Windows (for example older WSL), the
+//! client falls back to an in-memory demo dataset so the UI remains previewable.
 
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};

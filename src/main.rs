@@ -14,12 +14,7 @@ fn main() {
     app.run(move |cx| {
         gpui_kit::init(cx);
 
-        cx.bind_keys([
-            #[cfg(target_os = "macos")]
-            KeyBinding::new("cmd-q", Quit, None),
-            #[cfg(not(target_os = "macos"))]
-            KeyBinding::new("alt-f4", Quit, None),
-        ]);
+        cx.bind_keys([KeyBinding::new("alt-f4", Quit, None)]);
 
         cx.on_action(|_: &Quit, cx: &mut App| {
             cx.quit();

@@ -1163,7 +1163,7 @@ impl AppView {
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
                     .child(
-                        "Start a detached container through the local wslc CLI. In demo mode the action updates the in-memory list only.",
+                        "Start a detached container through the local wslc CLI. Without WSLc, demo mode only updates the in-memory list.",
                     ),
             )
             .child(
