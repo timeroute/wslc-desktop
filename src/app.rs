@@ -18,8 +18,8 @@ use smol::Timer;
 
 use crate::i18n::{self, Locale, Strings};
 use crate::wslc::{
-    BackendKind, ContainerInfo, EngineStatus, ImageInfo, PullEvent, SdkSetupEvent, VolumeInfo,
-    WslcClient,
+    BackendKind, ContainerInfo, CreateContainerRequest, EngineStatus, ImageInfo, PortMapping,
+    PullEvent, SdkSetupEvent, VolumeInfo, VolumeMapping, WslcClient,
 };
 
 const MAX_PULL_LOG_LINES: usize = 400;
@@ -31,8 +31,7 @@ pub enum Section {
     Containers = 0,
     Images = 1,
     Volumes = 2,
-    Run = 3,
-    Settings = 4,
+    Settings = 3,
 }
 
 impl Section {
@@ -41,7 +40,6 @@ impl Section {
             Self::Containers => t.containers,
             Self::Images => t.images,
             Self::Volumes => t.volumes,
-            Self::Run => t.run,
             Self::Settings => t.settings,
         }
     }
@@ -99,8 +97,17 @@ pub struct AppView {
     status_line: SharedString,
     image_input: Entity<InputState>,
     name_input: Entity<InputState>,
+    ports_input: Entity<InputState>,
+    bind_mounts_input: Entity<InputState>,
+    command_input: Entity<InputState>,
     pull_input: Entity<InputState>,
     volume_input: Entity<InputState>,
+    create_auto_remove: bool,
+    pull_modal_open: bool,
+    create_modal_open: bool,
+    logs_modal_open: bool,
+    logs_title: SharedString,
+    logs_text: SharedString,
     pull_phase: PullPhase,
     pull_status: SharedString,
     pull_progress: f32,
@@ -130,6 +137,15 @@ impl AppView {
         });
         let name_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(t.name_placeholder));
+        let ports_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(t.ports_placeholder)
+        });
+        let bind_mounts_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(t.bind_mounts_placeholder)
+        });
+        let command_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(t.command_placeholder)
+        });
         let pull_input = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("library/alpine:latest")
@@ -155,8 +171,17 @@ impl AppView {
             status_line: t.sdk_locked.into(),
             image_input,
             name_input,
+            ports_input,
+            bind_mounts_input,
+            command_input,
             pull_input,
             volume_input,
+            create_auto_remove: false,
+            pull_modal_open: false,
+            create_modal_open: false,
+            logs_modal_open: false,
+            logs_title: SharedString::default(),
+            logs_text: SharedString::default(),
             pull_phase: PullPhase::Idle,
             pull_status: t.pull_hint.into(),
             pull_progress: 0.0,
@@ -179,7 +204,228 @@ impl AppView {
     }
 
     fn ops_disabled(&self) -> bool {
-        self.sdk_locked() || self.busy || self.pull_phase == PullPhase::Pulling
+        self.sdk_locked()
+            || self.busy
+            || self.pull_phase == PullPhase::Pulling
+            || self.logs_modal_open
+            || (self.create_modal_open && self.busy)
+    }
+
+    fn container_key(item: &ContainerInfo) -> String {
+        if item.name.is_empty() {
+            item.id.clone()
+        } else {
+            item.name.clone()
+        }
+    }
+
+    fn parse_port_mappings(raw: &str) -> Result<Vec<PortMapping>, String> {
+        let mut out = Vec::new();
+        for part in raw.split(',') {
+            let part = part.trim();
+            if part.is_empty() {
+                continue;
+            }
+            let Some((host_s, container_s)) = part.split_once(':') else {
+                return Err(format!("expected host:container, got `{part}`"));
+            };
+            let host = host_s
+                .trim()
+                .parse::<u16>()
+                .map_err(|_| format!("invalid host port in `{part}`"))?;
+            let container = container_s
+                .trim()
+                .parse::<u16>()
+                .map_err(|_| format!("invalid container port in `{part}`"))?;
+            out.push(PortMapping { host, container });
+        }
+        Ok(out)
+    }
+
+    fn parse_bind_mounts(raw: &str) -> Result<Vec<VolumeMapping>, String> {
+        let mut out = Vec::new();
+        for part in raw.split(',') {
+            let part = part.trim();
+            if part.is_empty() {
+                continue;
+            }
+            let lower = part.to_ascii_lowercase();
+            let read_only = lower.ends_with(":ro");
+            let core = if read_only {
+                part[..part.len() - 3].trim_end()
+            } else {
+                part
+            };
+            let Some(idx) = core.find(":/") else {
+                return Err(format!("expected host:/container path, got `{part}`"));
+            };
+            let host = core[..idx].trim().to_string();
+            let container = core[idx + 1..].trim().to_string();
+            if host.is_empty() || container.is_empty() {
+                return Err(format!("empty host or mount path in `{part}`"));
+            }
+            out.push(VolumeMapping {
+                host,
+                container,
+                read_only,
+            });
+        }
+        Ok(out)
+    }
+
+    fn open_pull_modal(&mut self, cx: &mut Context<Self>) {
+        if self.sdk_locked() {
+            return;
+        }
+        self.pull_modal_open = true;
+        if self.pull_phase == PullPhase::Idle {
+            self.pull_status = self.t().pull_hint.into();
+        }
+        cx.notify();
+    }
+
+    fn dismiss_pull_modal(&mut self, cx: &mut Context<Self>) {
+        if self.pull_phase == PullPhase::Pulling {
+            return;
+        }
+        self.pull_modal_open = false;
+        self.pull_phase = PullPhase::Idle;
+        self.pull_status = self.t().pull_hint.into();
+        self.pull_progress = 0.0;
+        self.pull_logs.clear();
+        cx.notify();
+    }
+
+    fn open_create_modal(
+        &mut self,
+        prefill_image: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.sdk_locked() || self.ops_disabled() {
+            return;
+        }
+        if let Some(image) = prefill_image {
+            self.image_input.update(cx, |state, cx| {
+                state.set_value(&image, window, cx);
+            });
+        }
+        self.create_modal_open = true;
+        cx.notify();
+    }
+
+    fn dismiss_create_modal(&mut self, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        self.create_modal_open = false;
+        cx.notify();
+    }
+
+    fn dismiss_logs_modal(&mut self, cx: &mut Context<Self>) {
+        self.logs_modal_open = false;
+        self.logs_text = SharedString::default();
+        self.logs_title = SharedString::default();
+        cx.notify();
+    }
+
+    fn submit_create_container(&mut self, cx: &mut Context<Self>) {
+        if self.sdk_locked() || self.busy || self.pull_phase == PullPhase::Pulling {
+            return;
+        }
+        let t = self.t();
+        let image = self.image_input.read(cx).value().trim().to_string();
+        if image.is_empty() {
+            self.set_status(t.image_empty, cx);
+            return;
+        }
+        let name_raw = self.name_input.read(cx).value().to_string();
+        let name = name_raw.trim();
+        let name_opt = if name.is_empty() {
+            None
+        } else {
+            Some(name.to_string())
+        };
+        let ports_raw = self.ports_input.read(cx).value().to_string();
+        let mounts_raw = self.bind_mounts_input.read(cx).value().to_string();
+        let command_raw = self.command_input.read(cx).value().to_string();
+        let command_trim = command_raw.trim();
+        let command_opt = if command_trim.is_empty() {
+            None
+        } else {
+            Some(command_trim.to_string())
+        };
+
+        let ports = match Self::parse_port_mappings(&ports_raw) {
+            Ok(p) => p,
+            Err(err) => {
+                self.set_status(i18n::fmt1(t.parse_ports_failed, "err", err), cx);
+                return;
+            }
+        };
+        let volumes = match Self::parse_bind_mounts(&mounts_raw) {
+            Ok(v) => v,
+            Err(err) => {
+                self.set_status(i18n::fmt1(t.parse_bind_mounts_failed, "err", err), cx);
+                return;
+            }
+        };
+
+        let request = CreateContainerRequest {
+            image,
+            name: name_opt,
+            ports,
+            volumes,
+            auto_remove: self.create_auto_remove,
+            command: command_opt,
+        };
+
+        let Some(client) = self.client.clone() else {
+            return;
+        };
+        self.busy = true;
+        cx.notify();
+        match client.create_container(request) {
+            Ok(created) => {
+                self.busy = false;
+                self.create_modal_open = false;
+                self.set_status(i18n::fmt1(t.created_container, "name", &created), cx);
+                self.refresh(cx);
+            }
+            Err(err) => {
+                self.busy = false;
+                self.set_status(i18n::fmt1(t.error_prefix, "err", err.to_string()), cx);
+            }
+        }
+    }
+
+    fn open_container_logs(&mut self, index: usize, cx: &mut Context<Self>) {
+        if self.ops_disabled() {
+            return;
+        }
+        let Some(item) = self.containers.get(index) else {
+            return;
+        };
+        let key = Self::container_key(item);
+        let Some(client) = self.client.clone() else {
+            return;
+        };
+        let t = self.t();
+        self.busy = true;
+        cx.notify();
+        match client.container_logs(&key) {
+            Ok(text) => {
+                self.busy = false;
+                self.logs_title = key.into();
+                self.logs_text = text.into();
+                self.logs_modal_open = true;
+            }
+            Err(err) => {
+                self.busy = false;
+                self.set_status(i18n::fmt1(t.container_logs_failed, "err", err.to_string()), cx);
+            }
+        }
+        cx.notify();
     }
 
     fn t(&self) -> &'static Strings {
@@ -199,6 +445,15 @@ impl AppView {
         let t = self.t();
         self.name_input.update(cx, |state, cx| {
             state.set_placeholder(t.name_placeholder, window, cx);
+        });
+        self.ports_input.update(cx, |state, cx| {
+            state.set_placeholder(t.ports_placeholder, window, cx);
+        });
+        self.bind_mounts_input.update(cx, |state, cx| {
+            state.set_placeholder(t.bind_mounts_placeholder, window, cx);
+        });
+        self.command_input.update(cx, |state, cx| {
+            state.set_placeholder(t.command_placeholder, window, cx);
         });
         self.volume_input.update(cx, |state, cx| {
             state.set_placeholder(t.volume_placeholder, window, cx);
@@ -757,13 +1012,6 @@ impl AppView {
                                 this.section = Section::Volumes;
                                 cx.notify();
                             })),
-                        SidebarMenuItem::new(t.run)
-                            .icon(IconName::Play)
-                            .active(self.section == Section::Run)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.section = Section::Run;
-                                cx.notify();
-                            })),
                     ]),
                 ),
             )
@@ -860,9 +1108,15 @@ impl AppView {
         item: &ContainerInfo,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        let t = self.t();
         let selected = self.selected_container == Some(index);
         let running = item.is_running();
-        let name = item.name.clone();
+        let display_name = if item.name.is_empty() {
+            item.id.chars().take(12).collect::<String>()
+        } else {
+            item.name.clone()
+        };
+        let id_short = item.id.chars().take(12).collect::<String>();
         let image = item.image.clone();
         let status = item.status.clone();
         let ports = if item.ports.is_empty() {
@@ -870,7 +1124,14 @@ impl AppView {
         } else {
             item.ports.clone()
         };
-        let id_short = item.id.chars().take(12).collect::<String>();
+        let volumes = if item.volumes.is_empty() {
+            "—".to_string()
+        } else {
+            item.volumes.clone()
+        };
+        let ports_label = t.ports_label;
+        let mounts_label = t.bind_mounts_label;
+        let ops_off = self.ops_disabled();
 
         div()
             .id(("container-row", index))
@@ -898,10 +1159,11 @@ impl AppView {
             .child(
                 h_flex()
                     .w_full()
-                    .items_center()
+                    .items_start()
                     .gap_3()
                     .child(
                         div()
+                            .mt_1()
                             .size_2()
                             .rounded_full()
                             .bg(if running {
@@ -914,25 +1176,134 @@ impl AppView {
                         v_flex()
                             .flex_1()
                             .min_w_0()
-                            .gap_0p5()
+                            .gap_1()
                             .child(
                                 h_flex()
                                     .gap_2()
-                                    .items_baseline()
-                                    .child(div().font_medium().text_sm().child(name))
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(id_short),
-                                    ),
+                                    .items_center()
+                                    .flex_wrap()
+                                    .child(div().font_medium().text_sm().child(display_name))
+                                    .when(!item.name.is_empty(), |row| {
+                                        row.child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(id_short),
+                                        )
+                                    })
+                                    .when(item.auto_remove, |row| {
+                                        row.child(
+                                            div()
+                                                .px_1p5()
+                                                .py_0p5()
+                                                .rounded(cx.theme().radius)
+                                                .bg(cx.theme().yellow.opacity(0.2))
+                                                .text_color(cx.theme().yellow)
+                                                .text_xs()
+                                                .font_semibold()
+                                                .child(t.auto_remove_badge),
+                                        )
+                                    }),
                             )
                             .child(
                                 div()
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
                                     .truncate()
-                                    .child(format!("{image} · {status} · {ports}")),
+                                    .child(image),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(status),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .truncate()
+                                    .child(format!("{ports_label}: {ports}")),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .truncate()
+                                    .child(format!("{mounts_label}: {volumes}")),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_1()
+                            .flex_shrink_0()
+                            .occlude()
+                            .child(
+                                Button::new(("container-start", index))
+                                    .small()
+                                    .label(t.start)
+                                    .disabled(ops_off || running)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.selected_container = Some(index);
+                                        let key = this
+                                            .containers
+                                            .get(index)
+                                            .map(Self::container_key)
+                                            .unwrap_or_default();
+                                        let template = this.t().started;
+                                        this.with_busy(cx, move |client| {
+                                            client.start_container(&key)?;
+                                            Ok(i18n::fmt1(template, "name", &key))
+                                        });
+                                    })),
+                            )
+                            .child(
+                                Button::new(("container-stop", index))
+                                    .small()
+                                    .label(t.stop)
+                                    .disabled(ops_off || !running)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.selected_container = Some(index);
+                                        let key = this
+                                            .containers
+                                            .get(index)
+                                            .map(Self::container_key)
+                                            .unwrap_or_default();
+                                        let template = this.t().stopped;
+                                        this.with_busy(cx, move |client| {
+                                            client.stop_container(&key)?;
+                                            Ok(i18n::fmt1(template, "name", &key))
+                                        });
+                                    })),
+                            )
+                            .child(
+                                Button::new(("container-logs", index))
+                                    .small()
+                                    .label(t.logs)
+                                    .disabled(ops_off)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.open_container_logs(index, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new(("container-remove", index))
+                                    .small()
+                                    .danger()
+                                    .label(t.remove)
+                                    .disabled(ops_off)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.selected_container = Some(index);
+                                        let key = this
+                                            .containers
+                                            .get(index)
+                                            .map(Self::container_key)
+                                            .unwrap_or_default();
+                                        let template = this.t().removed;
+                                        this.with_busy(cx, move |client| {
+                                            client.remove_container(&key)?;
+                                            Ok(i18n::fmt1(template, "name", &key))
+                                        });
+                                    })),
                             ),
                     ),
             )
@@ -965,6 +1336,17 @@ impl AppView {
                         h_flex()
                             .gap_2()
                             .child(
+                                Button::new("create-container")
+                                    .small()
+                                    .primary()
+                                    .label(t.create)
+                                    .icon(IconName::Plus)
+                                    .disabled(self.ops_disabled())
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.open_create_modal(None, window, cx);
+                                    })),
+                            )
+                            .child(
                                 Button::new("toggle-all")
                                     .small()
                                     .label(if self.show_all_containers {
@@ -972,6 +1354,7 @@ impl AppView {
                                     } else {
                                         t.running
                                     })
+                                    .disabled(self.ops_disabled())
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.show_all_containers = !this.show_all_containers;
                                         this.refresh(cx);
@@ -1141,9 +1524,10 @@ impl AppView {
             )
     }
 
-    fn render_pull_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_pull_modal(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = self.t();
         let pulling = self.pull_phase == PullPhase::Pulling;
+        let can_close = !pulling;
         let log_lines: Vec<_> = self
             .pull_logs
             .iter()
@@ -1159,90 +1543,121 @@ impl AppView {
             })
             .collect();
 
-        v_flex()
-            .gap_3()
-            .p_3()
-            .rounded(cx.theme().radius)
-            .border_1()
-            .border_color(cx.theme().border)
-            .bg(cx.theme().secondary.opacity(0.28))
-            .child(
-                h_flex()
-                    .items_center()
-                    .justify_between()
-                    .child(div().font_medium().text_sm().child(t.pull_image))
-                    .child(self.render_pull_badge(cx)),
-            )
-            .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(div().flex_1().min_w_0().child(Input::new(&self.pull_input)))
-                    .child(
-                        Button::new("pull-image")
-                            .primary()
-                            .label(if pulling { t.pulling } else { t.pull })
-                            .icon(IconName::ArrowDown)
-                            .disabled(self.ops_disabled())
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                let reference = this.pull_input.read(cx).value().to_string();
-                                this.begin_pull(reference, cx);
-                            })),
-                    ),
-            )
+        div()
+            .id("pull-modal")
+            .absolute()
+            .top_0()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(cx.theme().overlay)
+            .occlude()
             .child(
                 v_flex()
-                    .gap_1()
+                    .w(px(560.))
+                    .max_h(px(520.))
+                    .m_6()
+                    .p_5()
+                    .gap_3()
+                    .rounded(cx.theme().radius_lg)
+                    .border_1()
+                    .border_color(cx.theme().border)
+                    .bg(cx.theme().background)
+                    .shadow_md()
                     .child(
                         h_flex()
                             .items_center()
                             .justify_between()
+                            .child(div().font_semibold().text_base().child(t.pull_image))
+                            .child(self.render_pull_badge(cx)),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(div().flex_1().min_w_0().child(Input::new(&self.pull_input)))
                             .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .truncate()
-                                    .child(self.pull_status.clone()),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(format!("{:.0}%", self.pull_progress)),
+                                Button::new("pull-image")
+                                    .primary()
+                                    .label(if pulling { t.pulling } else { t.pull })
+                                    .icon(IconName::ArrowDown)
+                                    .disabled(self.sdk_locked() || pulling)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        let reference = this.pull_input.read(cx).value().to_string();
+                                        this.begin_pull(reference, cx);
+                                    })),
                             ),
                     )
                     .child(
-                        Progress::new("pull-progress")
-                            .w_full()
-                            .h_2()
-                            .value(self.pull_progress),
-                    ),
-            )
-            .child(
-                div()
-                    .id("pull-log")
-                    .h(px(120.))
-                    .w_full()
-                    .overflow_y_scroll()
-                    .rounded(cx.theme().radius)
-                    .border_1()
-                    .border_color(cx.theme().border)
-                    .bg(cx.theme().background.opacity(0.65))
-                    .p_2()
+                        v_flex()
+                            .gap_1()
+                            .child(
+                                h_flex()
+                                    .items_center()
+                                    .justify_between()
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .truncate()
+                                            .child(self.pull_status.clone()),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(format!("{:.0}%", self.pull_progress)),
+                                    ),
+                            )
+                            .child(
+                                Progress::new("pull-progress")
+                                    .w_full()
+                                    .h_2()
+                                    .value(self.pull_progress),
+                            ),
+                    )
                     .child(
-                        v_flex().gap_0p5().w_full().map(|list| {
-                            if log_lines.is_empty() {
-                                list.child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(t.pull_logs_placeholder),
-                                )
-                            } else {
-                                list.children(log_lines)
-                            }
-                        }),
-                    ),
+                        div()
+                            .id("pull-log")
+                            .h(px(220.))
+                            .w_full()
+                            .overflow_y_scroll()
+                            .rounded(cx.theme().radius)
+                            .border_1()
+                            .border_color(cx.theme().border)
+                            .bg(cx.theme().background.opacity(0.65))
+                            .p_2()
+                            .child(
+                                v_flex().gap_0p5().w_full().map(|list| {
+                                    if log_lines.is_empty() {
+                                        list.child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(t.pull_logs_placeholder),
+                                        )
+                                    } else {
+                                        list.children(log_lines)
+                                    }
+                                }),
+                            ),
+                    )
+                    .when(can_close, |el| {
+                        el.child(
+                            h_flex()
+                                .justify_end()
+                                .child(
+                                    Button::new("pull-modal-close")
+                                        .label(t.close)
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.dismiss_pull_modal(cx);
+                                        })),
+                                ),
+                        )
+                    }),
             )
     }
 
@@ -1251,7 +1666,6 @@ impl AppView {
         v_flex()
             .size_full()
             .gap_3()
-            .child(self.render_pull_panel(cx))
             .child(
                 h_flex()
                     .items_center()
@@ -1270,10 +1684,20 @@ impl AppView {
                         h_flex()
                             .gap_2()
                             .child(
-                                Button::new("run-image")
+                                Button::new("open-pull-modal")
                                     .small()
                                     .primary()
-                                    .label(t.run)
+                                    .label(t.pull)
+                                    .icon(IconName::ArrowDown)
+                                    .disabled(self.ops_disabled())
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.open_pull_modal(cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("create-from-image")
+                                    .small()
+                                    .label(t.create)
                                     .disabled(
                                         self.ops_disabled() || self.selected_image().is_none(),
                                     )
@@ -1282,11 +1706,7 @@ impl AppView {
                                             return;
                                         };
                                         let reference = img.reference();
-                                        this.image_input.update(cx, |state, cx| {
-                                            state.set_value(&reference, window, cx);
-                                        });
-                                        this.section = Section::Run;
-                                        cx.notify();
+                                        this.open_create_modal(Some(reference), window, cx);
                                     })),
                             )
                             .child(
@@ -1499,54 +1919,194 @@ impl AppView {
             )
     }
 
-    fn render_run(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_create_modal(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = self.t();
-        v_flex()
-            .size_full()
-            .gap_4()
-            .max_w(px(520.))
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(t.run_intro),
-            )
+        let creating = self.busy && self.create_modal_open;
+        let auto_remove = self.create_auto_remove;
+
+        div()
+            .id("create-container-modal")
+            .absolute()
+            .top_0()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(cx.theme().overlay)
+            .occlude()
             .child(
                 v_flex()
-                    .gap_2()
-                    .child(Label::new(t.image_label))
-                    .child(Input::new(&self.image_input)),
+                    .w(px(560.))
+                    .max_h(px(640.))
+                    .m_6()
+                    .p_5()
+                    .gap_3()
+                    .rounded(cx.theme().radius_lg)
+                    .border_1()
+                    .border_color(cx.theme().border)
+                    .bg(cx.theme().background)
+                    .shadow_md()
+                    .child(div().font_semibold().text_base().child(t.create_container_title))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(t.create_container_intro),
+                    )
+                    .child(
+                        v_flex()
+                            .gap_2()
+                            .child(Label::new(t.image_label))
+                            .child(Input::new(&self.image_input)),
+                    )
+                    .child(
+                        v_flex()
+                            .gap_2()
+                            .child(Label::new(t.name_optional))
+                            .child(Input::new(&self.name_input)),
+                    )
+                    .child(
+                        v_flex()
+                            .gap_2()
+                            .child(Label::new(t.ports_label))
+                            .child(Input::new(&self.ports_input)),
+                    )
+                    .child(
+                        v_flex()
+                            .gap_2()
+                            .child(Label::new(t.bind_mounts_label))
+                            .child(Input::new(&self.bind_mounts_input)),
+                    )
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .justify_between()
+                            .child(Label::new(t.auto_remove_label))
+                            .child(
+                                Button::new("create-auto-remove")
+                                    .small()
+                                    .label(if auto_remove {
+                                        t.auto_remove_on
+                                    } else {
+                                        t.auto_remove_off
+                                    })
+                                    .when(auto_remove, |b| b.primary())
+                                    .disabled(creating)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.create_auto_remove = !this.create_auto_remove;
+                                        cx.notify();
+                                    })),
+                            ),
+                    )
+                    .child(
+                        v_flex()
+                            .gap_2()
+                            .child(Label::new(t.command_label))
+                            .child(Input::new(&self.command_input)),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .justify_end()
+                            .child(
+                                Button::new("create-cancel")
+                                    .label(t.close)
+                                    .disabled(creating)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.dismiss_create_modal(cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("create-submit")
+                                    .primary()
+                                    .label(if creating { t.working } else { t.create })
+                                    .icon(IconName::Plus)
+                                    .disabled(self.sdk_locked() || creating || self.pull_phase == PullPhase::Pulling)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.submit_create_container(cx);
+                                    })),
+                            ),
+                    ),
             )
+    }
+
+    fn render_logs_modal(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = self.t();
+        let body: SharedString = if self.logs_text.is_empty() {
+            t.logs_empty.into()
+        } else {
+            self.logs_text.clone()
+        };
+
+        div()
+            .id("logs-modal")
+            .absolute()
+            .top_0()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(cx.theme().overlay)
+            .occlude()
             .child(
                 v_flex()
-                    .gap_2()
-                    .child(Label::new(t.name_optional))
-                    .child(Input::new(&self.name_input)),
-            )
-            .child(
-                h_flex().gap_2().child(
-                    Button::new("run-detached")
-                        .primary()
-                        .label(t.run_detached)
-                        .icon(IconName::Play)
-                        .disabled(self.ops_disabled())
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            let image = this.image_input.read(cx).value().to_string();
-                            let name = this.name_input.read(cx).value().to_string();
-                            let name_opt = if name.trim().is_empty() {
-                                None
-                            } else {
-                                Some(name)
-                            };
-                            let template = this.t().launched;
-                            this.with_busy(cx, move |client| {
-                                let launched =
-                                    client.run_detached(&image, name_opt.as_deref())?;
-                                Ok(i18n::fmt1(template, "name", &launched))
-                            });
-                            this.section = Section::Containers;
-                        })),
-                ),
+                    .w(px(640.))
+                    .max_h(px(520.))
+                    .m_6()
+                    .p_5()
+                    .gap_3()
+                    .rounded(cx.theme().radius_lg)
+                    .border_1()
+                    .border_color(cx.theme().border)
+                    .bg(cx.theme().background)
+                    .shadow_md()
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .justify_between()
+                            .child(div().font_semibold().text_base().child(t.container_logs_title))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .truncate()
+                                    .child(self.logs_title.clone()),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("container-logs-body")
+                            .h(px(320.))
+                            .w_full()
+                            .overflow_y_scroll()
+                            .rounded(cx.theme().radius)
+                            .border_1()
+                            .border_color(cx.theme().border)
+                            .bg(cx.theme().background.opacity(0.65))
+                            .p_2()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_family("monospace")
+                                    .text_color(cx.theme().foreground)
+                                    .child(body),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .justify_end()
+                            .child(
+                                Button::new("logs-modal-close")
+                                    .label(t.close)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.dismiss_logs_modal(cx);
+                                    })),
+                            ),
+                    ),
             )
     }
 
@@ -1862,7 +2422,6 @@ impl Render for AppView {
                                                 Section::Volumes => {
                                                     panel.child(self.render_volumes(cx))
                                                 }
-                                                Section::Run => panel.child(self.render_run(cx)),
                                                 Section::Settings => {
                                                     panel.child(self.render_settings(cx))
                                                 }
@@ -1876,5 +2435,10 @@ impl Render for AppView {
             .when(show_setup, |root| {
                 root.child(self.render_sdk_setup_modal(cx))
             })
+            .when(self.pull_modal_open, |root| root.child(self.render_pull_modal(cx)))
+            .when(self.create_modal_open, |root| {
+                root.child(self.render_create_modal(cx))
+            })
+            .when(self.logs_modal_open, |root| root.child(self.render_logs_modal(cx)))
     }
 }

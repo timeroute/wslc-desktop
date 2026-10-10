@@ -8,10 +8,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{anyhow, Result};
 
 use super::{
-    split_ref, BackendKind, ContainerInfo, EngineStatus, ImageInfo, PullEvent, VolumeInfo,
+    split_ref, BackendKind, ContainerInfo, CreateContainerRequest, EngineStatus, ImageInfo,
+    PortMapping, PullEvent, VolumeInfo, VolumeMapping,
 };
 
-const SESSION_NAME: &str = "wslc-desktop";
 const DEFAULT_VOLUME_BYTES: u64 = 1024 * 1024 * 1024; // 1 GiB
 const STOP_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -43,9 +43,8 @@ pub enum Cmd {
         reference: String,
         reply: Sender<Result<()>>,
     },
-    RunDetached {
-        image: String,
-        name: Option<String>,
+    CreateContainer {
+        request: CreateContainerRequest,
         reply: Sender<Result<String>>,
     },
     CreateVolume {
@@ -59,6 +58,10 @@ pub enum Cmd {
     StartPull {
         reference: String,
         events: Sender<PullEvent>,
+    },
+    ContainerLogs {
+        key: String,
+        reply: Sender<Result<String>>,
     },
     Shutdown,
 }
@@ -169,15 +172,6 @@ fn state_label(state: wslc::ContainerState) -> String {
     }
 }
 
-fn storage_path() -> PathBuf {
-    // Must be a dedicated directory: WSLC rejects non-empty storage roots.
-    // SDK downloads live under `%LOCALAPPDATA%\WSLcDesktop\sdk\` — keep session data apart.
-    let base = std::env::var_os("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(r"C:\WslcData"));
-    base.join("WSLcDesktop").join("session")
-}
-
 fn progress_percent(current: u64, total: u64) -> Option<f32> {
     if total == 0 {
         return None;
@@ -193,11 +187,57 @@ fn now_label() -> String {
     format!("ctr-{secs}")
 }
 
+fn format_ports(ports: &[PortMapping]) -> String {
+    ports
+        .iter()
+        .map(|p| format!("0.0.0.0:{}->{}/tcp", p.host, p.container))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn format_volumes(volumes: &[VolumeMapping]) -> String {
+    volumes
+        .iter()
+        .map(|v| {
+            if v.read_only {
+                format!("{}:{}:ro", v.host, v.container)
+            } else {
+                format!("{}:{}", v.host, v.container)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn split_command_line(cmd: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    for ch in cmd.chars() {
+        match ch {
+            '"' => in_quotes = !in_quotes,
+            c if c.is_whitespace() && !in_quotes => {
+                if !current.is_empty() {
+                    args.push(std::mem::take(&mut current));
+                }
+            }
+            c => current.push(c),
+        }
+    }
+    if !current.is_empty() {
+        args.push(current);
+    }
+    args
+}
+
 struct TrackedContainer {
     id: String,
     name: String,
     image: String,
     created: String,
+    ports: String,
+    volumes: String,
+    auto_remove: bool,
     handle: wslc::Container,
 }
 
@@ -214,15 +254,8 @@ impl LiveState {
         let version = wslc::Service::version().map_err(|e| anyhow!("{e}"))?;
         let version = format!("{}.{}.{}", version.major, version.minor, version.revision);
 
-        let path = storage_path();
-        std::fs::create_dir_all(&path)
-            .map_err(|e| anyhow!("failed to create session storage {}: {e}", path.display()))?;
-
-        let session = wslc::Session::builder(SESSION_NAME, path)
-            .cpu_count(2)
-            .memory_mb(2048)
-            .start()
-            .map_err(|e| anyhow!("{e}"))?;
+        // Same session the `wslc` CLI uses (null SessionSettings server-side).
+        let session = wslc::Session::open_default().map_err(|e| anyhow!("{e}"))?;
 
         Ok(Self {
             session,
@@ -237,7 +270,10 @@ impl LiveState {
             backend: BackendKind::Live,
             binary: "wslcsdk".into(),
             version: self.version.clone(),
-            message: format!("Connected via WSL Containers SDK {}", self.version),
+            message: format!(
+                "Connected via WSL Containers SDK {} (default CLI session)",
+                self.version
+            ),
         }
     }
 
@@ -248,10 +284,17 @@ impl LiveState {
             .ok_or_else(|| anyhow!("container not found: {key}"))
     }
 
+    fn find_container(&self, key: &str) -> Result<&TrackedContainer> {
+        self.containers
+            .iter()
+            .find(|c| c.name == key || c.id == key || c.id.starts_with(key))
+            .ok_or_else(|| anyhow!("container not found: {key}"))
+    }
+
     fn list_containers(&mut self, all: bool) -> Result<Vec<ContainerInfo>> {
         let mut rows = Vec::new();
         let mut keep = Vec::new();
-        for tracked in self.containers.drain(..) {
+        for mut tracked in self.containers.drain(..) {
             match tracked.handle.state() {
                 Ok(wslc::ContainerState::Deleted) => {
                     let _ = tracked
@@ -260,13 +303,22 @@ impl LiveState {
                 }
                 Ok(state) => {
                     let status = state_label(state);
-                    let ports = parse_ports_from_inspect(&tracked.handle);
+                    let inspect_ports = parse_ports_from_inspect(&tracked.handle);
+                    if !inspect_ports.is_empty() {
+                        tracked.ports = inspect_ports;
+                    }
+                    let inspect_vols = parse_volumes_from_inspect(&tracked.handle);
+                    if !inspect_vols.is_empty() {
+                        tracked.volumes = inspect_vols;
+                    }
                     let info = ContainerInfo {
                         id: tracked.id.clone(),
                         name: tracked.name.clone(),
                         image: tracked.image.clone(),
                         status,
-                        ports,
+                        ports: tracked.ports.clone(),
+                        volumes: tracked.volumes.clone(),
+                        auto_remove: tracked.auto_remove,
                         created: tracked.created.clone(),
                     };
                     if all || info.is_running() {
@@ -280,7 +332,9 @@ impl LiveState {
                         name: tracked.name.clone(),
                         image: tracked.image.clone(),
                         status: format!("Error ({err})"),
-                        ports: String::new(),
+                        ports: tracked.ports.clone(),
+                        volumes: tracked.volumes.clone(),
+                        auto_remove: tracked.auto_remove,
                         created: tracked.created.clone(),
                     });
                     keep.push(tracked);
@@ -334,26 +388,60 @@ impl LiveState {
             .map_err(|e| anyhow!("{e}"))
     }
 
-    fn run_detached(&mut self, image: &str, name: Option<&str>) -> Result<String> {
-        let image = image.trim();
+    fn create_container(&mut self, request: CreateContainerRequest) -> Result<String> {
+        let image = request.image.trim();
         if image.is_empty() {
             return Err(anyhow!("image reference is empty"));
         }
-        let name = name
+        let name = request
+            .name
+            .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_string)
             .unwrap_or_else(now_label);
 
-        let builder = self
+        let ports_label = format_ports(&request.ports);
+        let volumes_label = format_volumes(&request.volumes);
+
+        let mut builder = self
             .session
             .container(wslc::ContainerOptions::new(image))
             .name(&name)
-            .init_process(wslc::ProcessOptions::new([
+            .auto_remove(request.auto_remove);
+
+        for port in &request.ports {
+            builder = builder.port(port.host, port.container);
+        }
+        for vol in &request.volumes {
+            let host = PathBuf::from(&vol.host);
+            builder = if vol.read_only {
+                builder.volume_read_only(host, vol.container.clone())
+            } else {
+                builder.volume(host, vol.container.clone())
+            };
+        }
+
+        if let Some(cmd) = request
+            .command
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            let args = split_command_line(cmd);
+            if args.is_empty() {
+                return Err(anyhow!("command is empty"));
+            }
+            builder = builder.init_process(wslc::ProcessOptions::new(args));
+        } else {
+            // Keep a long-running shell so Start/Stop remain useful when the
+            // image would otherwise exit immediately.
+            builder = builder.init_process(wslc::ProcessOptions::new([
                 "/bin/sh",
                 "-c",
                 "while true; do sleep 3600; done",
             ]));
+        }
 
         let handle = builder.create().map_err(|e| anyhow!("{e}"))?;
         handle.start().map_err(|e| anyhow!("{e}"))?;
@@ -364,6 +452,9 @@ impl LiveState {
             name: name.clone(),
             image: image.to_string(),
             created: "Just now".into(),
+            ports: ports_label,
+            volumes: volumes_label,
+            auto_remove: request.auto_remove,
             handle,
         });
         Ok(name)
@@ -407,6 +498,54 @@ impl LiveState {
         Ok(())
     }
 
+    fn container_logs(&self, key: &str) -> Result<String> {
+        let tracked = self.find_container(key)?;
+        let mut sections = Vec::new();
+
+        match tracked.handle.inspect() {
+            Ok(raw) => {
+                if let Ok(pretty) = serde_json::from_str::<serde_json::Value>(&raw) {
+                    sections.push(format!(
+                        "=== inspect ===\n{}",
+                        serde_json::to_string_pretty(&pretty).unwrap_or(raw)
+                    ));
+                } else {
+                    sections.push(format!("=== inspect ===\n{raw}"));
+                }
+            }
+            Err(err) => sections.push(format!("=== inspect ===\n(unavailable: {err})")),
+        }
+
+        let script = "set +e; echo '=== process list ==='; (ps aux 2>/dev/null || ps -ef 2>/dev/null); echo; echo '=== recent logs ==='; (tail -n 100 /var/log/*.log 2>/dev/null; true)";
+        match tracked.handle.exec(
+            wslc::ProcessOptions::new(["/bin/sh", "-c", script])
+                .capture_stdout()
+                .capture_stderr(),
+        ) {
+            Ok(proc) => match proc.wait_with_output() {
+                Ok(out) => {
+                    let mut body = String::from_utf8_lossy(&out.stdout).into_owned();
+                    let err = String::from_utf8_lossy(&out.stderr);
+                    if !err.trim().is_empty() {
+                        if !body.is_empty() {
+                            body.push('\n');
+                        }
+                        body.push_str(&err);
+                    }
+                    if body.trim().is_empty() {
+                        sections.push("=== runtime ===\n(no process output)".into());
+                    } else {
+                        sections.push(body);
+                    }
+                }
+                Err(err) => sections.push(format!("=== runtime ===\n(wait failed: {err})")),
+            },
+            Err(err) => sections.push(format!("=== runtime ===\n(exec failed: {err})")),
+        }
+
+        Ok(sections.join("\n\n"))
+    }
+
     fn pull(&self, reference: &str, events: &Sender<PullEvent>) {
         let reference = reference.trim();
         if reference.is_empty() {
@@ -447,7 +586,8 @@ impl LiveState {
     }
 
     fn shutdown(self) {
-        let _ = self.session.terminate();
+        // Default CLI session must stay alive for `wslc` — only release our handle.
+        drop(self.session);
     }
 }
 
@@ -501,6 +641,53 @@ fn parse_ports_from_inspect(container: &wslc::Container) -> String {
     String::new()
 }
 
+fn parse_volumes_from_inspect(container: &wslc::Container) -> String {
+    let Ok(raw) = container.inspect() else {
+        return String::new();
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return String::new();
+    };
+    for key in ["Mounts", "mounts", "Volumes", "volumes", "VolumeMounts"] {
+        if let Some(vols) = value.get(key) {
+            match vols {
+                serde_json::Value::String(s) => return s.clone(),
+                serde_json::Value::Array(items) => {
+                    let rendered: Vec<String> = items
+                        .iter()
+                        .filter_map(|item| {
+                            if let Some(s) = item.as_str() {
+                                return Some(s.to_string());
+                            }
+                            let host = item
+                                .get("Source")
+                                .or_else(|| item.get("windowsPath"))
+                                .or_else(|| item.get("WindowsPath"))
+                                .or_else(|| item.get("HostPath"))
+                                .and_then(|v| v.as_str());
+                            let cont = item
+                                .get("Destination")
+                                .or_else(|| item.get("containerPath"))
+                                .or_else(|| item.get("ContainerPath"))
+                                .or_else(|| item.get("Target"))
+                                .and_then(|v| v.as_str());
+                            match (host, cont) {
+                                (Some(h), Some(c)) => Some(format!("{h}:{c}")),
+                                _ => None,
+                            }
+                        })
+                        .collect();
+                    if !rendered.is_empty() {
+                        return rendered.join(", ");
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    String::new()
+}
+
 fn live_worker(mut state: LiveState, rx: mpsc::Receiver<Cmd>) {
     while let Ok(cmd) = rx.recv() {
         match cmd {
@@ -528,12 +715,8 @@ fn live_worker(mut state: LiveState, rx: mpsc::Receiver<Cmd>) {
             Cmd::RemoveImage { reference, reply } => {
                 let _ = reply.send(state.remove_image(&reference));
             }
-            Cmd::RunDetached {
-                image,
-                name,
-                reply,
-            } => {
-                let _ = reply.send(state.run_detached(&image, name.as_deref()));
+            Cmd::CreateContainer { request, reply } => {
+                let _ = reply.send(state.create_container(request));
             }
             Cmd::CreateVolume { name, reply } => {
                 let _ = reply.send(state.create_volume(&name));
@@ -543,6 +726,9 @@ fn live_worker(mut state: LiveState, rx: mpsc::Receiver<Cmd>) {
             }
             Cmd::StartPull { reference, events } => {
                 state.pull(&reference, &events);
+            }
+            Cmd::ContainerLogs { key, reply } => {
+                let _ = reply.send(state.container_logs(&key));
             }
             Cmd::Shutdown => break,
         }

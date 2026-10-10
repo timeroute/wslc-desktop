@@ -29,9 +29,10 @@ smol = "2"
 sys-locale = "0.3"
 
 # Official WSL Containers SDK bindings (`wslcsdk.dll`). Windows host only.
+# Path pin: vendor adds `Session::open_default()` (null settings = CLI session).
 # ureq/zip: download matching Microsoft.WSL.Containers native DLL at runtime.
 [target.'cfg(windows)'.dependencies]
-wslc = "0.1.9"
+wslc = { path = "vendor/wslc", version = "0.1.9" }
 ureq = { version = "2.12", default-features = true, features = ["json"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 

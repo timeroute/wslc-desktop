@@ -1,0 +1,15 @@
+[package]
+edition = "2021"
+rust-version = "1.80"
+name = "wslc"
+version = "0.1.9"
+description = "Safe Rust wrapper for Microsoft WSL Containers (vendored; adds Session::open_default)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Ivanbeethoven/wslc-rs"
+
+[lib]
+name = "wslc"
+path = "src/lib.rs"
+
+[dependencies]
+wslc-sys = "0.1.2"

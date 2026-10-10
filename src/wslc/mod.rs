@@ -51,7 +51,33 @@ pub struct ContainerInfo {
     pub image: String,
     pub status: String,
     pub ports: String,
+    pub volumes: String,
+    pub auto_remove: bool,
     pub created: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PortMapping {
+    pub host: u16,
+    pub container: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VolumeMapping {
+    pub host: String,
+    pub container: String,
+    pub read_only: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreateContainerRequest {
+    pub image: String,
+    pub name: Option<String>,
+    pub ports: Vec<PortMapping>,
+    pub volumes: Vec<VolumeMapping>,
+    pub auto_remove: bool,
+    /// Extra init command line (quoted tokens OK). Empty → keep-alive shell.
+    pub command: Option<String>,
 }
 
 impl ContainerInfo {
@@ -350,17 +376,26 @@ impl WslcClient {
         }
     }
 
-    pub fn run_detached(&self, image: &str, name: Option<&str>) -> Result<String> {
-        let image = image.trim();
-        if image.is_empty() {
+    pub fn create_container(&self, request: CreateContainerRequest) -> Result<String> {
+        if request.image.trim().is_empty() {
             return Err(anyhow!("image reference is empty"));
         }
 
         match &self.inner.backend {
             #[cfg(windows)]
-            Backend::Live { tx, .. } => live::call(tx, |reply| live::Cmd::RunDetached {
-                image: image.to_string(),
-                name: name.map(str::to_string),
+            Backend::Live { tx, .. } => {
+                live::call(tx, |reply| live::Cmd::CreateContainer { request, reply })
+            }
+            #[cfg(not(windows))]
+            Backend::Unsupported => Err(anyhow!("WSL Containers SDK unavailable")),
+        }
+    }
+
+    pub fn container_logs(&self, name_or_id: &str) -> Result<String> {
+        match &self.inner.backend {
+            #[cfg(windows)]
+            Backend::Live { tx, .. } => live::call(tx, |reply| live::Cmd::ContainerLogs {
+                key: name_or_id.to_string(),
                 reply,
             }),
             #[cfg(not(windows))]
