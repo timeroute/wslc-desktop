@@ -96,8 +96,8 @@ impl AppView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let locale = Locale::from_system();
         let t = locale.strings();
-        let theme_mode = ThemeMode::Dark;
-        Theme::change(theme_mode, Some(window), cx);
+        // Theme is applied once in `main` before the window opens to avoid a
+        // Light→Dark flash from gpui_kit::init's default Light theme.
 
         let image_input = cx.new(|cx| {
             InputState::new(window, cx)
@@ -115,13 +115,17 @@ impl AppView {
             cx.new(|cx| InputState::new(window, cx).placeholder(t.volume_placeholder));
 
         let client = WslcClient::detect();
-        let status = client.status();
         let mut view = Self {
             client,
-            status,
+            status: EngineStatus {
+                backend: BackendKind::Demo,
+                binary: String::new(),
+                version: String::new(),
+                message: String::new(),
+            },
             section: Section::Containers,
             locale,
-            theme_mode,
+            theme_mode: ThemeMode::Dark,
             containers: Vec::new(),
             images: Vec::new(),
             volumes: Vec::new(),
@@ -170,7 +174,25 @@ impl AppView {
         if self.pull_phase == PullPhase::Idle {
             self.pull_status = t.pull_hint.into();
         }
-        self.refresh(cx);
+        // Relocalize in-memory status only — do not re-run CLI (avoids console flashes).
+        self.status.message = self.localize_engine_message(&self.status);
+        let mode = match self.status.backend {
+            BackendKind::Live => t.mode_live,
+            BackendKind::Demo => t.mode_demo,
+        };
+        self.status_line = i18n::fmt4(
+            t.refreshed_summary,
+            "containers",
+            self.containers.len().to_string(),
+            "images",
+            self.images.len().to_string(),
+            "volumes",
+            self.volumes.len().to_string(),
+            "mode",
+            mode,
+        )
+        .into();
+        cx.notify();
     }
 
     fn apply_theme(&mut self, mode: ThemeMode, window: &mut Window, cx: &mut Context<Self>) {

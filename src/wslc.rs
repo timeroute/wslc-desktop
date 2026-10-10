@@ -3,6 +3,7 @@
 //! When WSLc is missing or unusable on Windows (for example older WSL), the
 //! client falls back to an in-memory demo dataset so the UI remains previewable.
 
+use std::ffi::OsStr;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::Sender;
@@ -12,6 +13,23 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context as _, Result, anyhow};
 use serde::Deserialize;
+
+/// Build a process command that does not flash a console window on Windows.
+fn command(program: impl AsRef<OsStr>) -> Command {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt as _;
+        // CREATE_NO_WINDOW — avoid a brief console flash for each CLI call.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let mut cmd = Command::new(program);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Command::new(program)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackendKind {
@@ -191,7 +209,12 @@ impl WslcClient {
     pub fn detect() -> Self {
         let binary = ["wslc", "wslc.exe", "container", "container.exe"]
             .into_iter()
-            .find(|name| Command::new(name).arg("version").output().is_ok_and(|o| o.status.success()))
+            .find(|name| {
+                command(name)
+                    .arg("version")
+                    .output()
+                    .is_ok_and(|o| o.status.success())
+            })
             .map(str::to_string);
 
         Self { binary }
@@ -504,7 +527,7 @@ impl WslcClient {
             .split_first()
             .ok_or_else(|| anyhow!("empty command"))?;
 
-        let output = Command::new(program)
+        let output = command(program)
             .args(rest)
             .output()
             .with_context(|| format!("failed to spawn `{program}`"))?;
@@ -909,7 +932,7 @@ fn demo_pull(reference: &str, tx: &Sender<PullEvent>) {
 
 /// Returns `true` if the process was spawned (success or failure of pull itself).
 fn stream_pull_command(bin: &str, args: &[&str], tx: &Sender<PullEvent>) -> bool {
-    let mut child = match Command::new(bin)
+    let mut child = match command(bin)
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
