@@ -2,7 +2,7 @@
 
 面向 Windows **WSL Containers（WSLc）** 的轻量级桌面管理器，基于 [GPUI Kit](https://gpui-kit.com)（Zed GPUI + 组件库）构建。
 
-通过官方 **WSL Containers SDK**（Rust crate [`wslc`](https://crates.io/crates/wslc) → 本机 `wslcsdk.dll`）浏览与管理容器、镜像与 VHD 卷。应用**不捆绑** SDK DLL，启动时从 WSL 安装目录 / `PATH` 加载系统副本，避免与本机 WSL 版本错配。若找不到 DLL 或运行时组件不齐，则进入 **Demo**。**不再调用** `wslc` / `container` CLI。
+通过官方 **WSL Containers SDK**（Rust crate [`wslc`](https://crates.io/crates/wslc)）浏览与管理容器、镜像与 VHD 卷。MSI **不捆绑** DLL：首次启动读取本机 `wslc`/`wsl` 版本，从 NuGet 下载匹配的 `Microsoft.WSL.Containers` 原生库到 `%LOCALAPPDATA%\WSLcDesktop\sdk\`；WSL 版本变化时会再检查并升级。若下载失败或运行时组件不齐，则进入 **Demo**。容器操作走 SDK，**不用** CLI。
 
 ## 功能
 
@@ -25,14 +25,7 @@ wsl --update
 rustup default stable-x86_64-pc-windows-msvc
 ```
 
-LIVE 需要本机可加载的 `wslcsdk.dll`（通常随较新的 WSL 出现在 `%ProgramFiles%\WSL\`，或由开发者把 [Microsoft.WSL.Containers](https://www.nuget.org/packages/Microsoft.WSL.Containers) 的 `runtimes\win-x64\native` 加入 PATH）。本地开发可选用：
-
-```powershell
-.\scripts\fetch-wslc-sdk.ps1
-$env:PATH = "$(Resolve-Path .\.wslc-sdk\native);$env:PATH"
-```
-
-详见 [wslc-rs SDK installation](https://github.com/Ivanbeethoven/wslc-rs/blob/master/docs/sdk-installation.md)。
+LIVE 需要：已安装/更新的 WSL（提供 `wslc.exe`），以及首次启动时能访问 nuget.org 以下载 `wslcsdk.dll`。也可预先手动放置 DLL（应用仍会优先用自动缓存）。
 
 ## 运行
 
@@ -155,9 +148,9 @@ src/
 ## 架构说明
 
 ```text
-UI (GPUI Kit) ──► WslcClient ──► wslc crate → 系统 wslcsdk.dll（WSL 目录 / PATH）
-                      │
-                      └─► DemoState（DLL / WSL 组件不可用时）
+UI (GPUI Kit) ──► WslcClient ──► 探测 wslc 版本 → NuGet 下载/缓存 wslcsdk.dll
+                      │                └──► wslc crate Session API
+                      └─► DemoState（下载失败 / WSL 组件不可用时）
 ```
 
 - **Images**：`Session::list_images` / `pull_image` / `delete_image`

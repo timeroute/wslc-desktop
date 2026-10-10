@@ -14,6 +14,9 @@ use anyhow::{anyhow, Result};
 #[cfg(windows)]
 mod live;
 #[cfg(windows)]
+mod sdk_fetch;
+mod sdk_version;
+#[cfg(windows)]
 mod syspath;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -236,14 +239,24 @@ impl WslcClient {
     pub fn detect() -> Self {
         #[cfg(windows)]
         {
-            // Prefer the host WSL / PATH copy of wslcsdk.dll (never ship our own).
-            syspath::prepare_sdk_search_path();
+            // WSL installs wslc.exe but not wslcsdk.dll — fetch a NuGet-matched
+            // copy into LocalAppData on first run / when the host version changes.
+            let mut bootstrap_err = None;
+            let mut preferred = Vec::new();
+            match sdk_fetch::ensure_sdk_dir() {
+                Ok(dir) => preferred.push(dir),
+                Err(err) => bootstrap_err = Some(err.to_string()),
+            }
+            syspath::prepare_sdk_search_path(&preferred);
             match live::spawn_worker() {
                 Ok((tx, version)) => Self::from_backend(Backend::Live { tx, version }),
-                Err(detail) => Self::from_backend(Backend::Demo {
-                    // Keep the real failure reason in the status bar.
-                    detail,
-                }),
+                Err(detail) => {
+                    let detail = match bootstrap_err {
+                        Some(boot) => format!("{detail} (sdk download: {boot})"),
+                        None => detail,
+                    };
+                    Self::from_backend(Backend::Demo { detail })
+                }
             }
         }
         #[cfg(not(windows))]

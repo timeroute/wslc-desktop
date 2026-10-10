@@ -1,26 +1,27 @@
-//! Locate a system-provided `wslcsdk.dll` and put its directory on PATH.
-//!
-//! We intentionally do **not** ship Microsoft's DLL. LoadLibrary resolves
-//! `wslcsdk.dll` from PATH / known WSL install folders so the DLL version
-//! matches the host WSL runtime.
+//! Put directories that contain `wslcsdk.dll` on the process PATH so LoadLibrary
+//! can resolve the bare name used by `wslc-sys`.
 
 #![cfg(windows)]
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-/// Prepend directories that contain `wslcsdk.dll` to process PATH (best effort).
-pub fn prepare_sdk_search_path() {
+/// Prefer `preferred` dirs (e.g. auto-downloaded cache), then any system copy.
+pub fn prepare_sdk_search_path(preferred: &[PathBuf]) {
     let mut dirs = Vec::new();
 
+    for dir in preferred {
+        if dir.join("wslcsdk.dll").is_file() {
+            dirs.push(dir.clone());
+        }
+    }
+
     for candidate in candidate_dirs() {
-        let dll = candidate.join("wslcsdk.dll");
-        if dll.is_file() {
+        if candidate.join("wslcsdk.dll").is_file() {
             dirs.push(candidate);
         }
     }
 
-    // Dedup while preserving order.
     let mut seen = std::collections::HashSet::new();
     dirs.retain(|d| seen.insert(d.clone()));
 
@@ -39,28 +40,24 @@ pub fn prepare_sdk_search_path() {
         new_path.push(";");
         new_path.push(existing);
     }
-    // Called once at process start before the SDK worker thread is spawned.
     unsafe { std::env::set_var("PATH", new_path) };
 }
 
 fn candidate_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
 
-    // Same folder as this exe (portable drop next to a system copy is fine).
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
             dirs.push(parent.to_path_buf());
         }
     }
 
-    // Directory of `wslc.exe` / `wsl.exe` when resolvable via PATH.
     for name in ["wslc.exe", "wslc", "wsl.exe", "wsl"] {
         if let Some(dir) = which_dir(name) {
             dirs.push(dir);
         }
     }
 
-    // Well-known WSL install roots.
     for base in [std::env::var_os("ProgramFiles"), std::env::var_os("ProgramW6432")]
         .into_iter()
         .flatten()
@@ -77,7 +74,6 @@ fn candidate_dirs() -> Vec<PathBuf> {
         dirs.push(PathBuf::from(sys).join("SysWOW64"));
     }
 
-    // Existing PATH entries (may already contain a NuGet native dir).
     if let Some(path) = std::env::var_os("PATH") {
         for part in std::env::split_paths(&path) {
             if !part.as_os_str().is_empty() {
