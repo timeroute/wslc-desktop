@@ -11,6 +11,7 @@
 - **Volumes**：列出 / 创建 / 删除命名卷
 - **Run**：按镜像引用启动 detached 容器（可选名称）
 - **引擎状态**：LIVE（真实 CLI）或 DEMO（内存样例数据）
+- **设置**：界面语言（中文 / English，默认跟随系统：中文系统用中文，否则英文）与主题（深色 / 浅色）
 
 ## 环境要求
 
@@ -140,8 +141,9 @@ git push origin v0.1.0
 ```text
 .github/workflows/   # GitHub Actions（Windows MSI）
 src/
-  main.rs            # 窗口启动、主题与快捷键
-  app.rs             # 侧栏 + 分区界面
+  main.rs            # 窗口启动与快捷键
+  app.rs             # 侧栏 + 分区界面（含设置）
+  i18n.rs            # 中英文字符串与系统语言检测
   wslc.rs            # wslc CLI 封装与 Demo 回退
 ```
 
