@@ -1,7 +1,8 @@
 mod app;
+mod i18n;
 mod wslc;
 
-use gpui_kit::component::{TitleBar, Theme, ThemeMode};
+use gpui_kit::component::TitleBar;
 use gpui_kit::*;
 
 use app::AppView;
@@ -14,12 +15,7 @@ fn main() {
     app.run(move |cx| {
         gpui_kit::init(cx);
 
-        cx.bind_keys([
-            #[cfg(target_os = "macos")]
-            KeyBinding::new("cmd-q", Quit, None),
-            #[cfg(not(target_os = "macos"))]
-            KeyBinding::new("alt-f4", Quit, None),
-        ]);
+        cx.bind_keys([KeyBinding::new("alt-f4", Quit, None)]);
 
         cx.on_action(|_: &Quit, cx: &mut App| {
             cx.quit();
@@ -33,7 +29,6 @@ fn main() {
         gpui_kit::open_window(window_options, cx, |window, cx| {
             window.activate_window();
             window.set_window_title("WSLc Desktop");
-            Theme::change(ThemeMode::Dark, Some(window), cx);
             cx.new(|cx| AppView::new(window, cx))
         })
         .expect("Failed to open window");

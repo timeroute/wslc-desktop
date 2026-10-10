@@ -2,7 +2,8 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::Duration;
 
 use gpui_kit::component::{
-    ActiveTheme, Disableable as _, Icon, IconName, Sizable as _, StyledExt as _, TitleBar,
+    ActiveTheme, Disableable as _, Icon, IconName, Sizable as _, StyledExt as _, Theme, ThemeMode,
+    TitleBar,
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputState},
@@ -16,6 +17,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use smol::Timer;
 
+use crate::i18n::{self, Locale, Strings};
 use crate::wslc::{
     BackendKind, ContainerInfo, EngineStatus, ImageInfo, PullEvent, VolumeInfo, WslcClient,
 };
@@ -29,6 +31,7 @@ pub enum Section {
     Images = 1,
     Volumes = 2,
     Run = 3,
+    Settings = 4,
 }
 
 impl Section {
@@ -38,16 +41,18 @@ impl Section {
             1 => Self::Images,
             2 => Self::Volumes,
             3 => Self::Run,
+            4 => Self::Settings,
             _ => Self::Containers,
         }
     }
 
-    fn label(self) -> &'static str {
+    fn label(self, t: &Strings) -> &'static str {
         match self {
-            Self::Containers => "Containers",
-            Self::Images => "Images",
-            Self::Volumes => "Volumes",
-            Self::Run => "Run",
+            Self::Containers => t.containers,
+            Self::Images => t.images,
+            Self::Volumes => t.volumes,
+            Self::Run => t.run,
+            Self::Settings => t.settings,
         }
     }
 }
@@ -62,12 +67,12 @@ enum PullPhase {
 }
 
 impl PullPhase {
-    fn label(self) -> &'static str {
+    fn label(self, t: &Strings) -> &'static str {
         match self {
-            Self::Idle => "IDLE",
-            Self::Pulling => "PULLING",
-            Self::Success => "OK",
-            Self::Failed => "FAILED",
+            Self::Idle => t.pull_idle,
+            Self::Pulling => t.pull_phase_pulling,
+            Self::Success => t.pull_ok,
+            Self::Failed => t.pull_failed,
         }
     }
 }
@@ -76,6 +81,8 @@ pub struct AppView {
     client: WslcClient,
     status: EngineStatus,
     section: Section,
+    locale: Locale,
+    theme_mode: ThemeMode,
     containers: Vec<ContainerInfo>,
     images: Vec<ImageInfo>,
     volumes: Vec<VolumeInfo>,
@@ -99,27 +106,34 @@ pub struct AppView {
 
 impl AppView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let client = WslcClient::detect();
-        let status = client.status();
+        let locale = Locale::from_system();
+        let t = locale.strings();
+        let theme_mode = ThemeMode::Dark;
+        Theme::change(theme_mode, Some(window), cx);
+
         let image_input = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("nginx:alpine")
                 .default_value("nginx:alpine")
         });
         let name_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("optional container name"));
+            cx.new(|cx| InputState::new(window, cx).placeholder(t.name_placeholder));
         let pull_input = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("library/alpine:latest")
                 .default_value("alpine:latest")
         });
         let volume_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("my-volume"));
+            cx.new(|cx| InputState::new(window, cx).placeholder(t.volume_placeholder));
 
+        let client = WslcClient::detect();
+        let status = client.status();
         let mut view = Self {
             client,
             status,
             section: Section::Containers,
+            locale,
+            theme_mode,
             containers: Vec::new(),
             images: Vec::new(),
             volumes: Vec::new(),
@@ -128,13 +142,13 @@ impl AppView {
             selected_volume: None,
             show_all_containers: true,
             busy: false,
-            status_line: "Ready".into(),
+            status_line: t.ready.into(),
             image_input,
             name_input,
             pull_input,
             volume_input,
             pull_phase: PullPhase::Idle,
-            pull_status: "Enter an image reference and pull".into(),
+            pull_status: t.pull_hint.into(),
             pull_progress: 0.0,
             pull_logs: Vec::new(),
             pull_rx: None,
@@ -144,13 +158,64 @@ impl AppView {
         view
     }
 
+    fn t(&self) -> &'static Strings {
+        self.locale.strings()
+    }
+
     fn set_status(&mut self, msg: impl Into<SharedString>, cx: &mut Context<Self>) {
         self.status_line = msg.into();
         cx.notify();
     }
 
+    fn apply_locale(&mut self, locale: Locale, window: &mut Window, cx: &mut Context<Self>) {
+        if self.locale == locale {
+            return;
+        }
+        self.locale = locale;
+        let t = self.t();
+        self.name_input.update(cx, |state, cx| {
+            state.set_placeholder(t.name_placeholder, window, cx);
+        });
+        self.volume_input.update(cx, |state, cx| {
+            state.set_placeholder(t.volume_placeholder, window, cx);
+        });
+        if self.pull_phase == PullPhase::Idle {
+            self.pull_status = t.pull_hint.into();
+        }
+        self.refresh(cx);
+    }
+
+    fn apply_theme(&mut self, mode: ThemeMode, window: &mut Window, cx: &mut Context<Self>) {
+        if self.theme_mode == mode {
+            return;
+        }
+        self.theme_mode = mode;
+        Theme::change(mode, Some(window), cx);
+        cx.notify();
+    }
+
+    fn localize_engine_message(&self, status: &EngineStatus) -> String {
+        let t = self.t();
+        match status.backend {
+            BackendKind::Live => i18n::fmt1(t.engine_connected, "bin", &status.binary),
+            BackendKind::Demo if status.binary == "demo" => t.engine_missing.to_string(),
+            BackendKind::Demo => {
+                // Keep the CLI error detail from the client when present.
+                let detail = status
+                    .message
+                    .strip_prefix("CLI present but unusable (")
+                    .and_then(|rest| rest.strip_suffix("); using demo data"))
+                    .unwrap_or(status.message.as_str());
+                i18n::fmt1(t.engine_unusable, "err", detail)
+            }
+        }
+    }
+
     fn refresh(&mut self, cx: &mut Context<Self>) {
+        let t = self.t();
         self.status = self.client.status();
+        self.status.message = self.localize_engine_message(&self.status);
+        let mut ok = true;
         match self.client.list_containers(self.show_all_containers) {
             Ok(rows) => {
                 self.containers = rows;
@@ -161,7 +226,10 @@ impl AppView {
                     self.selected_container = None;
                 }
             }
-            Err(err) => self.status_line = format!("List containers failed: {err}").into(),
+            Err(err) => {
+                ok = false;
+                self.status_line = i18n::fmt1(t.list_containers_failed, "err", err.to_string()).into();
+            }
         }
         match self.client.list_images() {
             Ok(rows) => {
@@ -170,7 +238,10 @@ impl AppView {
                     self.selected_image = None;
                 }
             }
-            Err(err) => self.status_line = format!("List images failed: {err}").into(),
+            Err(err) => {
+                ok = false;
+                self.status_line = i18n::fmt1(t.list_images_failed, "err", err.to_string()).into();
+            }
         }
         match self.client.list_volumes() {
             Ok(rows) => {
@@ -179,26 +250,26 @@ impl AppView {
                     self.selected_volume = None;
                 }
             }
-            Err(err) => self.status_line = format!("List volumes failed: {err}").into(),
+            Err(err) => {
+                ok = false;
+                self.status_line = i18n::fmt1(t.list_volumes_failed, "err", err.to_string()).into();
+            }
         }
-        if self.status_line.as_ref() == "Ready"
-            || self.status_line.as_ref().starts_with("Refreshed")
-            || self.status_line.as_ref().starts_with("Started")
-            || self.status_line.as_ref().starts_with("Stopped")
-            || self.status_line.as_ref().starts_with("Removed")
-            || self.status_line.as_ref().starts_with("Launched")
-            || self.status_line.as_ref().starts_with("Pulled")
-            || self.status_line.as_ref().starts_with("Created volume")
-        {
+        if ok {
             let mode = match self.status.backend {
-                BackendKind::Live => "live",
-                BackendKind::Demo => "demo",
+                BackendKind::Live => t.mode_live,
+                BackendKind::Demo => t.mode_demo,
             };
-            self.status_line = format!(
-                "Refreshed · {} containers · {} images · {} volumes · {mode}",
-                self.containers.len(),
-                self.images.len(),
-                self.volumes.len()
+            self.status_line = i18n::fmt4(
+                t.refreshed_summary,
+                "containers",
+                self.containers.len().to_string(),
+                "images",
+                self.images.len().to_string(),
+                "volumes",
+                self.volumes.len().to_string(),
+                "mode",
+                mode,
             )
             .into();
         }
@@ -223,7 +294,8 @@ impl AppView {
             }
             Err(err) => {
                 self.busy = false;
-                self.set_status(format!("Error: {err}"), cx);
+                let msg = i18n::fmt1(self.t().error_prefix, "err", err.to_string());
+                self.set_status(msg, cx);
             }
         }
     }
@@ -242,7 +314,7 @@ impl AppView {
         }
         let reference = reference.trim().to_string();
         if reference.is_empty() {
-            self.set_status("Image reference is empty", cx);
+            self.set_status(self.t().image_ref_empty, cx);
             return;
         }
 
@@ -251,10 +323,11 @@ impl AppView {
         self.pull_rx = Some(rx);
         self.pull_phase = PullPhase::Pulling;
         self.pull_progress = 0.0;
-        self.pull_status = format!("Pulling {reference}…").into();
+        let pulling = i18n::fmt1(self.t().pulling_image, "name", &reference);
+        self.pull_status = pulling.clone().into();
         self.pull_logs.clear();
         self.append_pull_log(format!("$ wslc pull {reference}"));
-        self.status_line = format!("Pulling {reference}…").into();
+        self.status_line = pulling.into();
         self.pull_poll_generation = self.pull_poll_generation.wrapping_add(1);
         let generation = self.pull_poll_generation;
         cx.notify();
@@ -315,16 +388,17 @@ impl AppView {
                         Ok(()) => {
                             self.pull_phase = PullPhase::Success;
                             self.pull_progress = 100.0;
-                            self.pull_status = "Pull complete".into();
-                            self.append_pull_log("✓ Pull finished successfully");
-                            self.status_line = "Pulled image".into();
+                            self.pull_status = self.t().pull_complete.into();
+                            self.append_pull_log(self.t().pull_finished_ok);
+                            self.status_line = self.t().pulled_image.into();
                             self.refresh(cx);
                         }
                         Err(err) => {
                             self.pull_phase = PullPhase::Failed;
-                            self.pull_status = format!("Pull failed: {err}").into();
+                            let msg = i18n::fmt1(self.t().pull_failed_msg, "err", &err);
+                            self.pull_status = msg.clone().into();
                             self.append_pull_log(format!("✗ {err}"));
-                            self.status_line = format!("Pull failed: {err}").into();
+                            self.status_line = msg.into();
                         }
                     }
                 }
@@ -333,8 +407,8 @@ impl AppView {
 
         if disconnected && self.pull_phase == PullPhase::Pulling {
             self.pull_phase = PullPhase::Failed;
-            self.pull_status = "Pull channel disconnected".into();
-            self.append_pull_log("✗ pull worker disconnected");
+            self.pull_status = self.t().pull_channel_disconnected.into();
+            self.append_pull_log(self.t().pull_worker_disconnected);
             finished = true;
         }
 
@@ -403,10 +477,11 @@ impl AppView {
             .text_color(color)
             .text_xs()
             .font_semibold()
-            .child(self.pull_phase.label())
+            .child(self.pull_phase.label(self.t()))
     }
 
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = self.t();
         Sidebar::new("nav")
             .w(px(220.))
             .header(
@@ -438,36 +513,36 @@ impl AppView {
                                     div()
                                         .text_xs()
                                         .text_color(cx.theme().muted_foreground)
-                                        .child("WSL Containers"),
+                                        .child(t.app_subtitle),
                                 ),
                         ),
                 ),
             )
             .child(
-                SidebarGroup::new("Browse").child(
+                SidebarGroup::new(t.browse).child(
                     SidebarMenu::new().children([
-                        SidebarMenuItem::new("Containers")
+                        SidebarMenuItem::new(t.containers)
                             .icon(IconName::HardDrive)
                             .active(self.section == Section::Containers)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.section = Section::Containers;
                                 cx.notify();
                             })),
-                        SidebarMenuItem::new("Images")
+                        SidebarMenuItem::new(t.images)
                             .icon(IconName::Folder)
                             .active(self.section == Section::Images)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.section = Section::Images;
                                 cx.notify();
                             })),
-                        SidebarMenuItem::new("Volumes")
+                        SidebarMenuItem::new(t.volumes)
                             .icon(IconName::Inbox)
                             .active(self.section == Section::Volumes)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.section = Section::Volumes;
                                 cx.notify();
                             })),
-                        SidebarMenuItem::new("Run")
+                        SidebarMenuItem::new(t.run)
                             .icon(IconName::Play)
                             .active(self.section == Section::Run)
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -477,9 +552,21 @@ impl AppView {
                     ]),
                 ),
             )
+            .child(
+                SidebarGroup::new(t.preferences).child(
+                    SidebarMenu::new().children([SidebarMenuItem::new(t.settings)
+                        .icon(IconName::Settings)
+                        .active(self.section == Section::Settings)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.section = Section::Settings;
+                            cx.notify();
+                        }))]),
+                ),
+            )
     }
 
     fn render_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = self.t();
         h_flex()
             .items_center()
             .justify_between()
@@ -491,7 +578,7 @@ impl AppView {
                         div()
                             .text_lg()
                             .font_semibold()
-                            .child(self.section.label()),
+                            .child(self.section.label(t)),
                     )
                     .child(
                         div()
@@ -505,16 +592,18 @@ impl AppView {
                     .items_center()
                     .gap_2()
                     .child(self.render_engine_badge(cx))
-                    .child(
-                        Button::new("refresh")
-                            .label(if self.busy { "Working…" } else { "Refresh" })
-                            .icon(IconName::RefreshCw)
-                            .disabled(self.busy || self.pull_phase == PullPhase::Pulling)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.set_status("Refreshing…", cx);
-                                this.refresh(cx);
-                            })),
-                    ),
+                    .when(self.section != Section::Settings, |this| {
+                        this.child(
+                            Button::new("refresh")
+                                .label(if self.busy { t.working } else { t.refresh })
+                                .icon(IconName::RefreshCw)
+                                .disabled(self.busy || self.pull_phase == PullPhase::Pulling)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.set_status(this.t().refreshing, cx);
+                                    this.refresh(cx);
+                                })),
+                        )
+                    }),
             )
     }
 
@@ -603,6 +692,7 @@ impl AppView {
     }
 
     fn render_containers(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = self.t();
         let running_count = self.containers.iter().filter(|c| c.is_running()).count();
 
         v_flex()
@@ -616,10 +706,12 @@ impl AppView {
                         div()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .child(format!(
-                                "{} total · {} running",
-                                self.containers.len(),
-                                running_count
+                            .child(i18n::fmt2(
+                                t.containers_count,
+                                "total",
+                                self.containers.len().to_string(),
+                                "running",
+                                running_count.to_string(),
                             )),
                     )
                     .child(
@@ -629,9 +721,9 @@ impl AppView {
                                 Button::new("toggle-all")
                                     .small()
                                     .label(if self.show_all_containers {
-                                        "All"
+                                        t.all
                                     } else {
-                                        "Running"
+                                        t.running
                                     })
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.show_all_containers = !this.show_all_containers;
@@ -642,7 +734,7 @@ impl AppView {
                                 Button::new("start-selected")
                                     .small()
                                     .primary()
-                                    .label("Start")
+                                    .label(t.start)
                                     .disabled(
                                         self.busy
                                             || self.pull_phase == PullPhase::Pulling
@@ -659,16 +751,17 @@ impl AppView {
                                         } else {
                                             c.name.clone()
                                         };
+                                        let template = this.t().started;
                                         this.with_busy(cx, move |client| {
                                             client.start_container(&key)?;
-                                            Ok(format!("Started {key}"))
+                                            Ok(i18n::fmt1(template, "name", &key))
                                         });
                                     })),
                             )
                             .child(
                                 Button::new("stop-selected")
                                     .small()
-                                    .label("Stop")
+                                    .label(t.stop)
                                     .disabled(
                                         self.busy
                                             || self.pull_phase == PullPhase::Pulling
@@ -685,9 +778,10 @@ impl AppView {
                                         } else {
                                             c.name.clone()
                                         };
+                                        let template = this.t().stopped;
                                         this.with_busy(cx, move |client| {
                                             client.stop_container(&key)?;
-                                            Ok(format!("Stopped {key}"))
+                                            Ok(i18n::fmt1(template, "name", &key))
                                         });
                                     })),
                             )
@@ -695,7 +789,7 @@ impl AppView {
                                 Button::new("remove-selected")
                                     .small()
                                     .danger()
-                                    .label("Remove")
+                                    .label(t.remove)
                                     .disabled(
                                         self.busy
                                             || self.pull_phase == PullPhase::Pulling
@@ -710,9 +804,10 @@ impl AppView {
                                         } else {
                                             c.name.clone()
                                         };
+                                        let template = this.t().removed;
                                         this.with_busy(cx, move |client| {
                                             client.remove_container(&key)?;
-                                            Ok(format!("Removed {key}"))
+                                            Ok(i18n::fmt1(template, "name", &key))
                                         });
                                     })),
                             ),
@@ -727,8 +822,8 @@ impl AppView {
                     .child({
                         if self.containers.is_empty() {
                             v_flex().gap_1().w_full().child(self.empty_state(
-                                "No containers",
-                                "Run an image from the Run tab, or refresh after starting one with wslc.",
+                                t.no_containers_title,
+                                t.no_containers_detail,
                                 cx,
                             ))
                         } else {
@@ -804,6 +899,7 @@ impl AppView {
     }
 
     fn render_pull_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = self.t();
         let pulling = self.pull_phase == PullPhase::Pulling;
         let log_lines: Vec<_> = self
             .pull_logs
@@ -831,7 +927,7 @@ impl AppView {
                 h_flex()
                     .items_center()
                     .justify_between()
-                    .child(div().font_medium().text_sm().child("Pull image"))
+                    .child(div().font_medium().text_sm().child(t.pull_image))
                     .child(self.render_pull_badge(cx)),
             )
             .child(
@@ -842,7 +938,7 @@ impl AppView {
                     .child(
                         Button::new("pull-image")
                             .primary()
-                            .label(if pulling { "Pulling…" } else { "Pull" })
+                            .label(if pulling { t.pulling } else { t.pull })
                             .icon(IconName::ArrowDown)
                             .disabled(pulling || self.busy)
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -897,7 +993,7 @@ impl AppView {
                                     div()
                                         .text_xs()
                                         .text_color(cx.theme().muted_foreground)
-                                        .child("Pull logs will appear here."),
+                                        .child(t.pull_logs_placeholder),
                                 )
                             } else {
                                 list.children(log_lines)
@@ -908,6 +1004,7 @@ impl AppView {
     }
 
     fn render_images(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = self.t();
         v_flex()
             .size_full()
             .gap_3()
@@ -920,7 +1017,11 @@ impl AppView {
                         div()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .child(format!("{} images", self.images.len())),
+                            .child(i18n::fmt1(
+                                t.images_count,
+                                "count",
+                                self.images.len().to_string(),
+                            )),
                     )
                     .child(
                         h_flex()
@@ -929,7 +1030,7 @@ impl AppView {
                                 Button::new("run-image")
                                     .small()
                                     .primary()
-                                    .label("Run")
+                                    .label(t.run)
                                     .disabled(
                                         self.busy
                                             || self.pull_phase == PullPhase::Pulling
@@ -951,7 +1052,7 @@ impl AppView {
                                 Button::new("remove-image")
                                     .small()
                                     .danger()
-                                    .label("Remove")
+                                    .label(t.remove)
                                     .disabled(
                                         self.busy
                                             || self.pull_phase == PullPhase::Pulling
@@ -962,9 +1063,10 @@ impl AppView {
                                             return;
                                         };
                                         let reference = img.reference();
+                                        let template = this.t().removed;
                                         this.with_busy(cx, move |client| {
                                             client.remove_image(&reference)?;
-                                            Ok(format!("Removed {reference}"))
+                                            Ok(i18n::fmt1(template, "name", &reference))
                                         });
                                     })),
                             ),
@@ -979,8 +1081,8 @@ impl AppView {
                     .child({
                         if self.images.is_empty() {
                             v_flex().gap_1().w_full().child(self.empty_state(
-                                "No images",
-                                "Type an image name above and pull it, then refresh.",
+                                t.no_images_title,
+                                t.no_images_detail,
                                 cx,
                             ))
                         } else {
@@ -1076,6 +1178,7 @@ impl AppView {
     }
 
     fn render_volumes(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = self.t();
         v_flex()
             .size_full()
             .gap_3()
@@ -1087,21 +1190,22 @@ impl AppView {
                     .child(
                         Button::new("create-volume")
                             .primary()
-                            .label("Create")
+                            .label(t.create)
                             .icon(IconName::Plus)
                             .disabled(self.busy || self.pull_phase == PullPhase::Pulling)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 let name = this.volume_input.read(cx).value().to_string();
+                                let template = this.t().created_volume;
                                 this.with_busy(cx, move |client| {
                                     client.create_volume(&name)?;
-                                    Ok(format!("Created volume {name}"))
+                                    Ok(i18n::fmt1(template, "name", &name))
                                 });
                             })),
                     )
                     .child(
                         Button::new("remove-volume")
                             .danger()
-                            .label("Remove")
+                            .label(t.remove)
                             .disabled(
                                 self.busy
                                     || self.pull_phase == PullPhase::Pulling
@@ -1112,9 +1216,10 @@ impl AppView {
                                     return;
                                 };
                                 let name = vol.name;
+                                let template = this.t().removed;
                                 this.with_busy(cx, move |client| {
                                     client.remove_volume(&name)?;
-                                    Ok(format!("Removed {name}"))
+                                    Ok(i18n::fmt1(template, "name", &name))
                                 });
                             })),
                     ),
@@ -1123,7 +1228,11 @@ impl AppView {
                 div()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child(format!("{} volumes", self.volumes.len())),
+                    .child(i18n::fmt1(
+                        t.volumes_count,
+                        "count",
+                        self.volumes.len().to_string(),
+                    )),
             )
             .child(
                 div()
@@ -1134,8 +1243,8 @@ impl AppView {
                     .child({
                         if self.volumes.is_empty() {
                             v_flex().gap_1().w_full().child(self.empty_state(
-                                "No volumes",
-                                "Create a named volume above, or refresh after creating one with wslc volume create.",
+                                t.no_volumes_title,
+                                t.no_volumes_detail,
                                 cx,
                             ))
                         } else {
@@ -1154,6 +1263,7 @@ impl AppView {
     }
 
     fn render_run(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = self.t();
         v_flex()
             .size_full()
             .gap_4()
@@ -1162,27 +1272,25 @@ impl AppView {
                 div()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
-                    .child(
-                        "Start a detached container through the local wslc CLI. In demo mode the action updates the in-memory list only.",
-                    ),
+                    .child(t.run_intro),
             )
             .child(
                 v_flex()
                     .gap_2()
-                    .child(Label::new("Image"))
+                    .child(Label::new(t.image_label))
                     .child(Input::new(&self.image_input)),
             )
             .child(
                 v_flex()
                     .gap_2()
-                    .child(Label::new("Name (optional)"))
+                    .child(Label::new(t.name_optional))
                     .child(Input::new(&self.name_input)),
             )
             .child(
                 h_flex().gap_2().child(
                     Button::new("run-detached")
                         .primary()
-                        .label("Run detached")
+                        .label(t.run_detached)
                         .icon(IconName::Play)
                         .disabled(self.busy || self.pull_phase == PullPhase::Pulling)
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -1193,10 +1301,11 @@ impl AppView {
                             } else {
                                 Some(name)
                             };
+                            let template = this.t().launched;
                             this.with_busy(cx, move |client| {
                                 let launched =
                                     client.run_detached(&image, name_opt.as_deref())?;
-                                Ok(format!("Launched {launched}"))
+                                Ok(i18n::fmt1(template, "name", &launched))
                             });
                             this.section = Section::Containers;
                         })),
@@ -1213,7 +1322,7 @@ impl AppView {
                     .child(
                         v_flex()
                             .gap_2()
-                            .child(div().font_medium().text_sm().child("CLI equivalents"))
+                            .child(div().font_medium().text_sm().child(t.cli_equivalents))
                             .child(
                                 div()
                                     .text_xs()
@@ -1234,6 +1343,95 @@ impl AppView {
                                     .font_family("monospace")
                                     .text_color(cx.theme().muted_foreground)
                                     .child("wslc volume list"),
+                            ),
+                    ),
+            )
+    }
+
+    fn render_settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = self.t();
+        let locale = self.locale;
+        let theme_mode = self.theme_mode;
+
+        v_flex()
+            .size_full()
+            .gap_6()
+            .max_w(px(560.))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(t.settings_intro),
+            )
+            .child(
+                v_flex()
+                    .gap_3()
+                    .p_4()
+                    .rounded(cx.theme().radius)
+                    .border_1()
+                    .border_color(cx.theme().border)
+                    .bg(cx.theme().secondary.opacity(0.28))
+                    .child(div().font_medium().text_sm().child(t.language))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(t.language_hint),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                Button::new("lang-zh")
+                                    .label(Locale::Zh.label())
+                                    .when(locale == Locale::Zh, |b| b.primary())
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.apply_locale(Locale::Zh, window, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("lang-en")
+                                    .label(Locale::En.label())
+                                    .when(locale == Locale::En, |b| b.primary())
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.apply_locale(Locale::En, window, cx);
+                                    })),
+                            ),
+                    ),
+            )
+            .child(
+                v_flex()
+                    .gap_3()
+                    .p_4()
+                    .rounded(cx.theme().radius)
+                    .border_1()
+                    .border_color(cx.theme().border)
+                    .bg(cx.theme().secondary.opacity(0.28))
+                    .child(div().font_medium().text_sm().child(t.theme))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(t.theme_hint),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                Button::new("theme-dark")
+                                    .label(t.theme_dark)
+                                    .when(theme_mode == ThemeMode::Dark, |b| b.primary())
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.apply_theme(ThemeMode::Dark, window, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("theme-light")
+                                    .label(t.theme_light)
+                                    .when(theme_mode == ThemeMode::Light, |b| b.primary())
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.apply_theme(ThemeMode::Light, window, cx);
+                                    })),
                             ),
                     ),
             )
@@ -1287,7 +1485,11 @@ impl AppView {
                 div()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child(format!("binary: {}", self.status.binary)),
+                    .child(i18n::fmt1(
+                        self.t().binary_label,
+                        "name",
+                        &self.status.binary,
+                    )),
             )
     }
 }
@@ -1295,6 +1497,7 @@ impl AppView {
 impl Render for AppView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let section_index = self.section as usize;
+        let t = self.t();
 
         h_flex()
             .size_full()
@@ -1314,10 +1517,11 @@ impl Render for AppView {
                                     this.section = Section::from_index(*ix);
                                     cx.notify();
                                 }))
-                                .child(Tab::new().label("Containers"))
-                                .child(Tab::new().label("Images"))
-                                .child(Tab::new().label("Volumes"))
-                                .child(Tab::new().label("Run")),
+                                .child(Tab::new().label(t.containers))
+                                .child(Tab::new().label(t.images))
+                                .child(Tab::new().label(t.volumes))
+                                .child(Tab::new().label(t.run))
+                                .child(Tab::new().label(t.settings)),
                         ),
                     )
                     .child(
@@ -1336,6 +1540,7 @@ impl Render for AppView {
                                         Section::Images => panel.child(self.render_images(cx)),
                                         Section::Volumes => panel.child(self.render_volumes(cx)),
                                         Section::Run => panel.child(self.render_run(cx)),
+                                        Section::Settings => panel.child(self.render_settings(cx)),
                                     }
                                 }),
                             ),

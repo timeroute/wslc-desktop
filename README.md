@@ -2,7 +2,7 @@
 
 面向 Windows **WSL Containers（WSLc）** 的轻量级桌面管理器，基于 [GPUI Kit](https://gpui-kit.com)（Zed GPUI + 组件库）构建。
 
-在本机调用 `wslc` / `container` CLI，浏览与管理容器、镜像，并一键启动分离式容器。未检测到 WSLc 时自动进入 **Demo** 模式，方便在 macOS / Linux 上开发与预览 UI。
+在本机调用 `wslc` / `container` CLI，浏览与管理容器、镜像，并一键启动分离式容器。未检测到 WSLc 时自动进入 **Demo** 模式（内存样例数据），便于在尚未安装 WSL Containers 的 Windows 上预览 UI。
 
 ## 功能
 
@@ -11,54 +11,44 @@
 - **Volumes**：列出 / 创建 / 删除命名卷
 - **Run**：按镜像引用启动 detached 容器（可选名称）
 - **引擎状态**：LIVE（真实 CLI）或 DEMO（内存样例数据）
+- **设置**：界面语言（中文 / English，默认跟随系统：中文系统用中文，否则英文）与主题（深色 / 浅色）
 
 ## 环境要求
 
-### Windows（真实 WSLc）
-
-1. WSL **2.9.3+**（含 `wslc.exe`）
-2. Rust **1.92+**，MSVC 工具链
-3. Visual Studio 2022 C++ 工作负载 + Windows SDK + CMake
+1. Windows 10/11（x64）
+2. WSL **2.9.3+**（含 `wslc.exe`；真实管理容器时需要）
+3. Rust **1.92+**，MSVC 工具链
+4. Visual Studio 2022 C++ 工作负载 + Windows SDK + CMake
 
 ```powershell
 wsl --update
 wslc version
-```
-
-### Linux / macOS（Demo / 开发）
-
-安装 GPUI Kit 文档中的系统依赖后即可编译运行；界面会使用内置 Demo 数据。
-
-Ubuntu 示例：
-
-```bash
-sudo apt update
-sudo apt install -y gcc g++ clang libfontconfig-dev libwayland-dev \
-  libwebkit2gtk-4.1-dev libxkbcommon-x11-dev libx11-xcb-dev \
-  libssl-dev libzstd-dev libvulkan1
+rustup default stable-x86_64-pc-windows-msvc
 ```
 
 ## 运行
 
-```bash
+在 **x86_64-pc-windows-msvc** 工具链下：
+
+```powershell
 cargo run
 ```
 
 发布构建：
 
-```bash
+```powershell
 cargo build --release
 ```
 
 单元测试（CLI 表格解析与 Demo 状态机）：
 
-```bash
+```powershell
 cargo test
 ```
 
 ## 打包成 Windows 安装包（MSI）
 
-GPUI Kit 应用是原生 Windows 可执行文件，**需要在 Windows 本机（或 Windows CI）用 MSVC 工具链构建**，不能在 Linux/macOS 上直接打出可用的 MSI。
+GPUI Kit 应用是原生 Windows 可执行文件，需在 Windows 本机（或 Windows CI）用 MSVC 工具链构建并打 MSI。
 
 ### 1. 准备环境
 
@@ -121,58 +111,39 @@ cargo wix --sign
 
 GPUI 应用一般是单二进制；若运行时报缺 DLL，把对应 VC++ 运行库一并装上，或在 WiX/Inno 脚本里捆绑 redistributable。
 
-### 5. Buildkite 自动打 MSI（草稿已入库）
+### 5. GitHub Actions 自动打 MSI
 
-Origin **没有内置 Actions runner**，Windows 打包走 **Buildkite**（仓库 Apps / Marketplace 安装）。本仓库已提供草稿：
-
-```text
-.buildkite/pipeline.yml
-.buildkite/scripts/windows-msi.ps1
-.buildkite/scripts/annotate-msi-release.ps1
-```
-
-**接入步骤：**
-
-1. 在 [quentinz/wslc-desktop](https://cursor.com/codebase/quentinz/wslc-desktop) 的 Apps 里安装 **Buildkite**，创建 pipeline 指向本仓库  
-2. Pipeline 首步：`buildkite-agent pipeline upload .buildkite/pipeline.yml`  
-3. **先创建 Windows queue**（必做，否则会报 `Queue '…' does not exist`）：
-   - Buildkite → **Agents** → **Default cluster** → **Queues** → **New Queue**
-   - Key 填例如 `windows`（自建 agent 或 Hosted Windows，视组织是否开通）
-4. Pipeline **Settings → Environment Variables** 增加：
+仓库已提供 Windows runner 工作流：
 
 ```text
-WINDOWS_AGENT_QUEUE=windows
+.github/workflows/windows-msi.yml
 ```
 
-（值必须等于上一步创建的 queue key。）
+**触发：**
 
-5. Windows agent（自建）示例：
+- push / PR 到 `main`：构建 MSI，上传为 workflow artifact
+- tag `v*`：构建 MSI，并创建 GitHub Release 挂载安装包
+- 手动：Actions → **Windows MSI** → **Run workflow**
 
-```ini
-# buildkite-agent.cfg — queue 标签必须等于集群里已存在的 key
-tags="queue=windows"
-```
-
-预装：VS2022 C++、Windows SDK、CMake、Rust MSVC、（可选）Chocolatey。  
-6. 触发：push `main` / tag `v*`。发布示例：
+发布示例：
 
 ```powershell
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-成功后在构建页 **Artifacts** 下载 `target/wix/*.msi`。
+成功后可在对应 workflow run 的 **Artifacts** 下载 `wslc-desktop-msi`；打 tag 时还会出现在 **Releases**。
 
-> 入口 `pipeline.yml` 不再写死 queue，避免 upload 校验失败；真正的 MSI 步骤由 `upload-windows-msi.sh` 按 `WINDOWS_AGENT_QUEUE` 动态上传。  
-> **未设置 `WINDOWS_AGENT_QUEUE` 时会软跳过 MSI（构建仍成功）**，并在 Buildkite 页面写黄色注解；配好 queue 与环境变量后才会真正打 MSI。
+工作流在 `windows-latest` 上安装 Rust MSVC、WiX Toolset、`cargo-wix`，必要时执行 `cargo wix init`，再 `cargo wix` 产出 `target\wix\*.msi`。
 
 ## 项目结构
 
 ```text
-.buildkite/          # Buildkite Windows MSI 发布草稿
+.github/workflows/   # GitHub Actions（Windows MSI）
 src/
-  main.rs            # 窗口启动、主题与快捷键
-  app.rs             # 侧栏 + 分区界面
+  main.rs            # 窗口启动与快捷键
+  app.rs             # 侧栏 + 分区界面（含设置）
+  i18n.rs            # 中英文字符串与系统语言检测
   wslc.rs            # wslc CLI 封装与 Demo 回退
 ```
 
