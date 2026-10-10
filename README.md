@@ -71,7 +71,7 @@ cargo install cargo-wix
 
 ### 2. 打 MSI（含桌面图标）
 
-仓库已提交 `wix/main.wxs` 与 `wix/Product.ico`：安装后会创建 **开始菜单** 与 **桌面快捷方式**（**不** 捆绑 `wslcsdk.dll`，**不** 写入 PATH）。
+仓库已提交 `wix/main.wxs` 与 `wix/Product.ico`：安装后会创建 **开始菜单** 与 **桌面快捷方式**（**不** 捆绑 `wslcsdk.dll`，**不** 写入 PATH）。`UpgradeCode` 固定，且 `AllowSameVersionUpgrades=yes`：同版本重复安装会覆盖旧实例，不会在「应用和功能」里堆出多个条目。发正式版时仍建议递增 `Cargo.toml` 的 `version`（前三段）。
 
 ```powershell
 cargo wix
