@@ -1,0 +1,122 @@
+<?xml version='1.0' encoding='windows-1252'?>
+<!--
+  WSLc Desktop installer.
+  - Installs the GUI app under Program Files
+  - Creates Start Menu + Desktop shortcuts (with product icon)
+  - Does NOT add PATH (no command-line launch requirement)
+-->
+<?if $(sys.BUILDARCH) = x64 or $(sys.BUILDARCH) = arm64 ?>
+    <?define PlatformProgramFilesFolder = "ProgramFiles64Folder" ?>
+<?else ?>
+    <?define PlatformProgramFilesFolder = "ProgramFilesFolder" ?>
+<?endif ?>
+
+<Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'>
+
+    <Product
+        Id='*'
+        Name='WSLc Desktop'
+        UpgradeCode='31263ED9-28F7-4608-AF04-A8CAE4591EB0'
+        Manufacturer='WSLc Desktop'
+        Language='1033'
+        Codepage='1252'
+        Version='$(var.Version)'>
+
+        <Package Id='*'
+            Keywords='Installer'
+            Description='Lightweight desktop manager for Windows WSL Containers (WSLc)'
+            Manufacturer='WSLc Desktop'
+            InstallerVersion='450'
+            Languages='1033'
+            Compressed='yes'
+            InstallScope='perMachine'
+            SummaryCodepage='1252'
+            />
+
+        <MajorUpgrade
+            Schedule='afterInstallInitialize'
+            DowngradeErrorMessage='A newer version of [ProductName] is already installed. Setup will now exit.'/>
+
+        <Media Id='1' Cabinet='media1.cab' EmbedCab='yes' DiskPrompt='CD-ROM #1'/>
+        <Property Id='DiskPrompt' Value='WSLc Desktop Installation'/>
+
+        <Icon Id='ProductICO' SourceFile='wix\Product.ico'/>
+        <Property Id='ARPPRODUCTICON' Value='ProductICO'/>
+
+        <Directory Id='TARGETDIR' Name='SourceDir'>
+            <Directory Id='$(var.PlatformProgramFilesFolder)' Name='PFiles'>
+                <Directory Id='APPLICATIONFOLDER' Name='WSLc Desktop'>
+                    <Directory Id='Bin' Name='bin'>
+                        <Component Id='binary0' Guid='*'>
+                            <File
+                                Id='exe0'
+                                Name='wslc-desktop.exe'
+                                DiskId='1'
+                                Source='$(var.CargoTargetBinDir)\wslc-desktop.exe'
+                                KeyPath='yes'/>
+                        </Component>
+                    </Directory>
+                </Directory>
+            </Directory>
+
+            <Directory Id='ProgramMenuFolder'>
+                <Directory Id='ApplicationProgramsFolder' Name='WSLc Desktop'/>
+            </Directory>
+
+            <Directory Id='DesktopFolder' Name='Desktop'/>
+        </Directory>
+
+        <DirectoryRef Id='ApplicationProgramsFolder'>
+            <Component Id='ApplicationShortcut' Guid='9E4E3369-A360-4C09-AA54-E3808FBB6FD4'>
+                <Shortcut
+                    Id='ApplicationStartMenuShortcut'
+                    Name='WSLc Desktop'
+                    Description='WSL Containers desktop manager'
+                    Target='[#exe0]'
+                    WorkingDirectory='Bin'
+                    Icon='ProductICO'/>
+                <Shortcut
+                    Id='ApplicationDesktopShortcut'
+                    Directory='DesktopFolder'
+                    Name='WSLc Desktop'
+                    Description='WSL Containers desktop manager'
+                    Target='[#exe0]'
+                    WorkingDirectory='Bin'
+                    Icon='ProductICO'/>
+                <RemoveFolder Id='ApplicationProgramsFolder' On='uninstall'/>
+                <RegistryValue
+                    Root='HKCU'
+                    Key='Software\WSLc Desktop'
+                    Name='installed'
+                    Type='integer'
+                    Value='1'
+                    KeyPath='yes'/>
+            </Component>
+        </DirectoryRef>
+
+        <Feature
+            Id='Binaries'
+            Title='Application'
+            Description='Installs WSLc Desktop and desktop/start-menu shortcuts.'
+            Level='1'
+            ConfigurableDirectory='APPLICATIONFOLDER'
+            AllowAdvertise='no'
+            Display='expand'
+            Absent='disallow'>
+            <ComponentRef Id='binary0'/>
+            <ComponentRef Id='ApplicationShortcut'/>
+        </Feature>
+
+        <SetProperty Id='ARPINSTALLLOCATION' Value='[APPLICATIONFOLDER]' After='CostFinalize'/>
+
+        <Property Id='ARPHELPLINK' Value='https://github.com/timeroute/wslc-desktop'/>
+
+        <UI>
+            <UIRef Id='WixUI_FeatureTree'/>
+            <Publish Dialog='WelcomeDlg' Control='Next' Event='NewDialog' Value='CustomizeDlg' Order='99'>1</Publish>
+            <Publish Dialog='CustomizeDlg' Control='Back' Event='NewDialog' Value='WelcomeDlg' Order='99'>1</Publish>
+        </UI>
+
+    </Product>
+
+</Wix>

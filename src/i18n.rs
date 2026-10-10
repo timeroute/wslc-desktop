@@ -41,7 +41,6 @@ impl Locale {
 pub struct Strings {
     pub app_subtitle: &'static str,
     pub browse: &'static str,
-    pub preferences: &'static str,
     pub containers: &'static str,
     pub images: &'static str,
     pub volumes: &'static str,
@@ -129,7 +128,6 @@ pub struct Strings {
 pub static EN: Strings = Strings {
     app_subtitle: "WSL Containers",
     browse: "Browse",
-    preferences: "Preferences",
     containers: "Containers",
     images: "Images",
     volumes: "Volumes",
@@ -217,7 +215,6 @@ pub static EN: Strings = Strings {
 pub static ZH: Strings = Strings {
     app_subtitle: "WSL 容器",
     browse: "浏览",
-    preferences: "偏好",
     containers: "容器",
     images: "镜像",
     volumes: "卷",

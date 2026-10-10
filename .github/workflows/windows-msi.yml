@@ -70,16 +70,16 @@ jobs:
         shell: pwsh
         run: cargo install cargo-wix --locked
 
-      - name: Init WiX project if missing
+      - name: Build MSI
         shell: pwsh
         run: |
           if (-not (Test-Path "wix\main.wxs")) {
-            cargo wix init --force
+            throw "Missing wix\main.wxs (desktop shortcuts + product icon must be committed)"
           }
-
-      - name: Build MSI
-        shell: pwsh
-        run: cargo wix --nocapture
+          if (-not (Test-Path "wix\Product.ico")) {
+            throw "Missing wix\Product.ico"
+          }
+          cargo wix --nocapture
 
       - name: Upload MSI artifact
         uses: actions/upload-artifact@v4

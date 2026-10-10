@@ -17,6 +17,8 @@ product-name = "WSLc Desktop"
 manufacturer = "WSLc Desktop"
 license = false
 eula = false
+product-icon = "wix/Product.ico"
+upgrade-guid = "31263ED9-28F7-4608-AF04-A8CAE4591EB0"
 
 [dependencies]
 anyhow = "1"

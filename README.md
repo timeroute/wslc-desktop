@@ -11,7 +11,7 @@
 - **Volumes**：列出 / 创建 / 删除命名卷
 - **Run**：按镜像引用启动 detached 容器（可选名称）
 - **引擎状态**：LIVE（真实 CLI）或 DEMO（内存样例数据）
-- **设置**：界面语言（中文 / English，默认跟随系统：中文系统用中文，否则英文）与主题（深色 / 浅色）
+- **设置**：TitleBar 齿轮按钮打开；界面语言（中文 / English，默认跟随系统）与主题（深色 / 浅色）
 
 ## 环境要求
 
@@ -68,15 +68,11 @@ rustc -vV   # 确认 host 含 windows-msvc
 cargo install cargo-wix
 ```
 
-### 2. 生成安装工程并打 MSI
+### 2. 打 MSI（含桌面图标）
 
-在仓库根目录：
+仓库已提交 `wix/main.wxs` 与 `wix/Product.ico`：安装后会创建 **开始菜单** 与 **桌面快捷方式**，**不会** 写入 PATH（无需命令行启动）。
 
 ```powershell
-# 首次：根据 Cargo.toml 生成 wix\main.wxs（可按需改图标、快捷方式、安装目录）
-cargo wix init
-
-# 构建 release 并打包 MSI
 cargo wix
 ```
 
@@ -134,15 +130,16 @@ git push origin v0.1.0
 
 成功后可在对应 workflow run 的 **Artifacts** 下载 `wslc-desktop-msi`；打 tag 时还会出现在 **Releases**。
 
-工作流在 `windows-latest` 上安装 Rust MSVC、WiX Toolset、`cargo-wix`，必要时执行 `cargo wix init`，再 `cargo wix` 产出 `target\wix\*.msi`。
+工作流在 `windows-latest` 上安装 Rust MSVC、WiX Toolset、`cargo-wix`，再 `cargo wix` 产出带桌面快捷方式的 MSI。
 
 ## 项目结构
 
 ```text
 .github/workflows/   # GitHub Actions（Windows MSI）
+wix/                 # MSI：桌面/开始菜单快捷方式 + 产品图标
 src/
   main.rs            # 窗口启动与快捷键
-  app.rs             # 侧栏 + 分区界面（含设置）
+  app.rs             # 侧栏导航 + TitleBar 设置按钮
   i18n.rs            # 中英文字符串与系统语言检测
   wslc.rs            # wslc CLI 封装与 Demo 回退
 ```
