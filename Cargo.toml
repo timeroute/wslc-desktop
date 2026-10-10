@@ -28,6 +28,15 @@ serde_json = "1"
 smol = "2"
 sys-locale = "0.3"
 
+# Official WSL Containers SDK bindings (`wslcsdk.dll`). Windows host only.
+# ureq/zip: download matching Microsoft.WSL.Containers native DLL at runtime.
+[target.'cfg(windows)'.dependencies]
+# Vendored from timeroute/wslc-rs (+ named_volume). Switch to crates.io when upstream publishes
+# OpenContainer / Logs / named volumes.
+wslc = { path = "vendor/wslc-rs/crates/wslc" }
+ureq = { version = "2.12", default-features = true, features = ["json"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
 [profile.dev.package]
 gpui-pre = { opt-level = 3 }
 gpui-component = { opt-level = 3 }

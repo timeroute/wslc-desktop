@@ -1,8 +1,10 @@
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 mod app;
 mod i18n;
 mod wslc;
 
-use gpui_kit::component::TitleBar;
+use gpui_kit::component::{Theme, ThemeMode, TitleBar};
 use gpui_kit::*;
 
 use app::AppView;
@@ -14,6 +16,8 @@ fn main() {
 
     app.run(move |cx| {
         gpui_kit::init(cx);
+        // Override init's default Light theme before the first frame is shown.
+        Theme::change(ThemeMode::Dark, None, cx);
 
         cx.bind_keys([KeyBinding::new("alt-f4", Quit, None)]);
 

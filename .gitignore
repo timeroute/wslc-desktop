@@ -20,3 +20,7 @@ Thumbs.db
 /agent-tools/
 /tmp/
 *.log
+
+# Optional local SDK staging (scripts/fetch-wslc-sdk.ps1)
+/.wslc-sdk/
+/wix/sdk/win-x64/

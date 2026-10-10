@@ -2,29 +2,30 @@
 
 面向 Windows **WSL Containers（WSLc）** 的轻量级桌面管理器，基于 [GPUI Kit](https://gpui-kit.com)（Zed GPUI + 组件库）构建。
 
-在本机调用 `wslc` / `container` CLI，浏览与管理容器、镜像，并一键启动分离式容器。未检测到 WSLc 时自动进入 **Demo** 模式（内存样例数据），便于在尚未安装 WSL Containers 的 Windows 上预览 UI。
+通过官方 **WSL Containers SDK**（Rust crate [`wslc`](https://crates.io/crates/wslc)）浏览与管理容器、镜像与 VHD 卷。应用使用**独立会话** `wslc-desktop`（数据在 `%LOCALAPPDATA%\WSLcDesktop\session\`），与 `wslc` CLI 会话隔离——桌面端镜像/容器需在本应用内拉取与创建。MSI **不捆绑** DLL：首次启动以**阻塞弹窗**安装/更新 SDK 到 `%LOCALAPPDATA%\WSLcDesktop\sdk\`；Live 失败则保持锁定直至重试成功或自行修好 WSL。
 
 ## 功能
 
-- **Containers**：列出全部/运行中容器，Start / Stop / Remove
-- **Images**：输入镜像名直接 Pull（状态 / 进度条 / 日志），查看本地镜像，跳转 Run 或删除
-- **Volumes**：列出 / 创建 / 删除命名卷
-- **Run**：按镜像引用启动 detached 容器（可选名称）
-- **引擎状态**：LIVE（真实 CLI）或 DEMO（内存样例数据）
-- **设置**：TitleBar 齿轮按钮打开；界面语言（中文 / English，默认跟随系统）与主题（深色 / 浅色）
+- **总览（默认）**：引擎 / SDK / 应用版本、会话信息、容器·镜像·卷摘要
+- **Containers**：工具栏创建；行内 Start / Stop / Restart / Logs / Inspect / Exec / Remove（确认）；catalog + `OpenContainer` 跨重启恢复
+- **Images**：工具栏拉取；行内创建容器 / 删除（确认）
+- **Volumes**：工具栏弹窗创建（1/2/5/10 GiB）；行内删除（确认）；创建容器时可挂命名卷
+- **引擎状态**：LIVE（独立 `wslc-desktop` 会话）；未就绪时全屏 SDK 安装弹窗（OFF）
+- **设置**：可滚动；语言 / 主题 / 会话 CPU·内存（写入 prefs，下次新建会话生效）
 
 ## 环境要求
 
 1. Windows 10/11（x64）
-2. WSL **2.9.3+**（含 `wslc.exe`；真实管理容器时需要）
+2. WSL **2.9.3+**（`wsl --update`；LIVE 模式需要本机 WSL Containers 运行时）
 3. Rust **1.92+**，MSVC 工具链
 4. Visual Studio 2022 C++ 工作负载 + Windows SDK + CMake
 
 ```powershell
 wsl --update
-wslc version
 rustup default stable-x86_64-pc-windows-msvc
 ```
+
+LIVE 需要：已安装/更新的 WSL（提供 `wslc.exe`），以及首次启动时能访问 nuget.org 以下载 `wslcsdk.dll`。也可预先手动放置 DLL（应用仍会优先用自动缓存）。
 
 ## 运行
 
@@ -40,7 +41,7 @@ cargo run
 cargo build --release
 ```
 
-单元测试（CLI 表格解析与 Demo 状态机）：
+单元测试（版本匹配与格式化辅助）：
 
 ```powershell
 cargo test
@@ -70,7 +71,7 @@ cargo install cargo-wix
 
 ### 2. 打 MSI（含桌面图标）
 
-仓库已提交 `wix/main.wxs` 与 `wix/Product.ico`：安装后会创建 **开始菜单** 与 **桌面快捷方式**，**不会** 写入 PATH（无需命令行启动）。
+仓库已提交 `wix/main.wxs` 与 `wix/Product.ico`：安装后会创建 **开始菜单** 与 **桌面快捷方式**（**不** 捆绑 `wslcsdk.dll`，**不** 写入 PATH）。
 
 ```powershell
 cargo wix
@@ -105,7 +106,7 @@ cargo wix --sign
 | **EXE 安装向导** | [Inno Setup](https://jrsoftware.org/isinfo.php) / NSIS | 先 `cargo build --release`，再把 `target\release\wslc-desktop.exe` 写进脚本 |
 | **便携版** | 直接分发 exe | 拷贝 `target\release\wslc-desktop.exe`（目标机通常还需 [VC++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)） |
 
-GPUI 应用一般是单二进制；若运行时报缺 DLL，把对应 VC++ 运行库一并装上，或在 WiX/Inno 脚本里捆绑 redistributable。
+若运行时报缺 VC++ 运行库，把对应 [VC++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) 一并装上。LIVE 依赖本机 WSL + 可发现的 `wslcsdk.dll`；安装弹窗与状态栏会显示具体失败原因（找不到 DLL / 组件缺失 / SDK 过旧等）。
 
 ### 5. GitHub Actions 自动打 MSI
 
@@ -139,20 +140,22 @@ git push origin v0.1.0
 wix/                 # MSI：桌面/开始菜单快捷方式 + 产品图标
 src/
   main.rs            # 窗口启动与快捷键
-  app.rs             # 侧栏导航 + TitleBar 设置按钮
+  app/               # GPUI 主界面（按功能拆分：shell、containers、images、…）
   i18n.rs            # 中英文字符串与系统语言检测
-  wslc.rs            # wslc CLI 封装与 Demo 回退
+  wslc/              # SDK 封装（types + 独立会话 Live；安装/拉取/创建进度事件）
 ```
 
 ## 架构说明
 
 ```text
-UI (GPUI Kit) ──► WslcClient ──► wslc / container CLI
-                      │
-                      └─► DemoState（无 CLI 时）
+UI (GPUI Kit) ──► SDK 安装弹窗 ──► NuGet 缓存 wslcsdk.dll
+                ──► Session "wslc-desktop"（与 CLI 隔离）
+                ──► 拉取 / 创建容器 / 日志 均为阻塞弹窗
 ```
 
-解析策略：优先尝试 `--format json`，失败则按 Docker 风格表格拆列，尽量兼容 `wslc` 的输出演进。
+- **Images**：本会话 `list_images` / `pull_image` / `delete_image`
+- **Containers**：本进程跟踪的 SDK 句柄 + `%LOCALAPPDATA%\WSLcDesktop\catalog.json`；启动时 `OpenContainer` 重连（退出不 `terminate` 会话）
+- **Volumes**：`create_vhd_volume` / `delete_vhd_volume`，catalog 持久化
 
 ## 许可
 

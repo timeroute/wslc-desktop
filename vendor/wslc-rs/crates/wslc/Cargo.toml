@@ -1,0 +1,18 @@
+[package]
+name = "wslc"
+description = "Safe Rust wrapper for Microsoft WSL Containers"
+version = "0.1.9"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+
+[lib]
+name = "wslc"
+path = "src/lib.rs"
+
+[dependencies]
+wslc-sys = { path = "../wslc-sys", version = "0.1.2" }
+
+[features]
+default = []
+integration = []
