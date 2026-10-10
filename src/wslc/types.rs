@@ -59,7 +59,7 @@ pub struct CreateContainerRequest {
     pub ports: Vec<PortMapping>,
     pub volumes: Vec<VolumeMapping>,
     pub auto_remove: bool,
-    /// Extra init command line (quoted tokens OK). Empty → keep-alive shell.
+    /// Extra init command line (quoted tokens OK). Empty → image ENTRYPOINT/CMD.
     pub command: Option<String>,
 }
 

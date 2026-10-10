@@ -44,6 +44,9 @@ pub struct AppView {
     selected_volume: Option<usize>,
     show_all_containers: bool,
     busy: bool,
+    /// Background result for `with_busy` (start/stop/create/…).
+    busy_rx: Option<Receiver<anyhow::Result<String>>>,
+    busy_poll_generation: u64,
     status_line: SharedString,
     image_input: Entity<InputState>,
     name_input: Entity<InputState>,
@@ -118,6 +121,8 @@ impl AppView {
             selected_volume: None,
             show_all_containers: true,
             busy: false,
+            busy_rx: None,
+            busy_poll_generation: 0,
             status_line: t.sdk_locked.into(),
             image_input,
             name_input,
@@ -203,5 +208,8 @@ impl Render for AppView {
                 root.child(self.render_create_modal(cx))
             })
             .when(self.logs_modal_open, |root| root.child(self.render_logs_modal(cx)))
+            .when(self.busy && !show_setup && !self.pull_modal_open, |root| {
+                root.child(self.render_busy_overlay(cx))
+            })
     }
 }

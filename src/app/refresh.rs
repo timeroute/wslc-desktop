@@ -1,15 +1,23 @@
+use std::sync::mpsc;
+use std::time::Duration;
 
 use gpui_kit::component::{
-    Theme, ThemeMode,
+    ActiveTheme, Theme, ThemeMode,
+    h_flex,
+    label::Label,
+    v_flex,
 };
 use gpui_kit::*;
+use smol::Timer;
 
 use crate::i18n::{self, Locale};
 use crate::wslc::{
     BackendKind, EngineStatus, WslcClient,
 };
 
+use super::poll::recv_all;
 use super::state::PullPhase;
+use super::widgets::modal_scrim;
 use super::AppView;
 
 impl AppView {
@@ -191,10 +199,11 @@ impl AppView {
         cx.notify();
     }
 
+    /// Run an SDK call off the UI thread and show a busy overlay until it finishes.
     pub(crate) fn with_busy(
         &mut self,
         cx: &mut Context<Self>,
-        op: impl FnOnce(&WslcClient) -> anyhow::Result<String>,
+        op: impl FnOnce(&WslcClient) -> anyhow::Result<String> + Send + 'static,
     ) {
         if self.sdk_locked() || self.busy || self.pull_phase == PullPhase::Pulling {
             return;
@@ -202,19 +211,111 @@ impl AppView {
         let Some(client) = self.client.clone() else {
             return;
         };
+
+        let (tx, rx) = mpsc::channel();
+        std::thread::Builder::new()
+            .name("wslc-ui-op".into())
+            .spawn(move || {
+                let result = op(&client);
+                let _ = tx.send(result);
+            })
+            .expect("spawn UI op thread");
+
         self.busy = true;
+        self.busy_rx = Some(rx);
+        self.status_line = self.t().working.into();
+        self.busy_poll_generation = self.busy_poll_generation.wrapping_add(1);
+        let generation = self.busy_poll_generation;
         cx.notify();
-        match op(&client) {
-            Ok(msg) => {
-                self.busy = false;
-                self.set_status(msg, cx);
-                self.refresh(cx);
+
+        cx.spawn(async move |this, cx| {
+            loop {
+                Timer::after(Duration::from_millis(50)).await;
+                let cont = this
+                    .update(cx, |this, cx| {
+                        if this.busy_poll_generation != generation {
+                            return false;
+                        }
+                        this.poll_busy(cx)
+                    })
+                    .unwrap_or(false);
+                if !cont {
+                    break;
+                }
             }
-            Err(err) => {
-                self.busy = false;
-                let msg = i18n::fmt1(self.t().error_prefix, "err", err.to_string());
-                self.set_status(msg, cx);
+        })
+        .detach();
+    }
+
+    /// Returns `true` while the background op is still running.
+    fn poll_busy(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(rx) = self.busy_rx.take() else {
+            return false;
+        };
+        let (events, disconnected) = recv_all(&rx);
+        if let Some(result) = events.into_iter().last() {
+            self.busy = false;
+            self.busy_rx = None;
+            match result {
+                Ok(msg) if msg.starts_with("__LOGS__\0") => {
+                    let rest = &msg["__LOGS__\0".len()..];
+                    if let Some((title, text)) = rest.split_once('\0') {
+                        self.logs_title = title.to_string().into();
+                        self.logs_text = text.to_string().into();
+                        self.logs_modal_open = true;
+                        self.status_line = self.t().ready.into();
+                    } else {
+                        self.set_status(msg, cx);
+                    }
+                    cx.notify();
+                }
+                Ok(msg) => {
+                    if self.create_modal_open {
+                        self.create_modal_open = false;
+                    }
+                    self.set_status(msg, cx);
+                    self.refresh(cx);
+                }
+                Err(err) => {
+                    let msg = i18n::fmt1(self.t().error_prefix, "err", err.to_string());
+                    self.set_status(msg, cx);
+                }
             }
+            cx.notify();
+            return false;
         }
+        if disconnected {
+            self.busy = false;
+            self.busy_rx = None;
+            self.set_status(self.t().op_channel_disconnected, cx);
+            cx.notify();
+            return false;
+        }
+        self.busy_rx = Some(rx);
+        true
+    }
+
+    pub(crate) fn render_busy_overlay(&self, cx: &Context<Self>) -> impl IntoElement {
+        let t = self.t();
+        modal_scrim(
+            "busy-overlay",
+            cx,
+            h_flex()
+                .items_center()
+                .justify_center()
+                .px_6()
+                .py_4()
+                .rounded(cx.theme().radius_lg)
+                .border_1()
+                .border_color(cx.theme().border)
+                .bg(cx.theme().background)
+                .shadow_md()
+                .child(
+                    v_flex()
+                        .gap_1()
+                        .items_center()
+                        .child(Label::new(t.working).text_sm()),
+                ),
+        )
     }
 }

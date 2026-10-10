@@ -21,6 +21,30 @@ use super::parsing::{parse_bind_mounts, parse_port_mappings};
 use super::widgets::{modal_panel, modal_scrim};
 
 impl AppView {
+    pub(crate) fn reset_create_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let t = self.t();
+        self.image_input.update(cx, |state, cx| {
+            state.set_value("nginx:alpine", window, cx);
+        });
+        self.name_input.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+            state.set_placeholder(t.name_placeholder, window, cx);
+        });
+        self.ports_input.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+            state.set_placeholder(t.ports_placeholder, window, cx);
+        });
+        self.bind_mounts_input.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+            state.set_placeholder(t.bind_mounts_placeholder, window, cx);
+        });
+        self.command_input.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+            state.set_placeholder(t.command_placeholder, window, cx);
+        });
+        self.create_auto_remove = false;
+    }
+
     pub(crate) fn open_create_modal(
         &mut self,
         prefill_image: Option<String>,
@@ -30,6 +54,7 @@ impl AppView {
         if self.sdk_locked() || self.ops_disabled() {
             return;
         }
+        self.reset_create_form(window, cx);
         if let Some(image) = prefill_image {
             self.image_input.update(cx, |state, cx| {
                 state.set_value(&image, window, cx);
@@ -39,11 +64,16 @@ impl AppView {
         cx.notify();
     }
 
-    pub(crate) fn dismiss_create_modal(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn dismiss_create_modal(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.busy {
             return;
         }
         self.create_modal_open = false;
+        self.reset_create_form(window, cx);
         cx.notify();
     }
 
@@ -54,7 +84,11 @@ impl AppView {
         cx.notify();
     }
 
-    pub(crate) fn submit_create_container(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn submit_create_container(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.sdk_locked() || self.busy || self.pull_phase == PullPhase::Pulling {
             return;
         }
@@ -105,23 +139,11 @@ impl AppView {
             command: command_opt,
         };
 
-        let Some(client) = self.client.clone() else {
-            return;
-        };
-        self.busy = true;
-        cx.notify();
-        match client.create_container(request) {
-            Ok(created) => {
-                self.busy = false;
-                self.create_modal_open = false;
-                self.set_status(i18n::fmt1(t.created_container, "name", &created), cx);
-                self.refresh(cx);
-            }
-            Err(err) => {
-                self.busy = false;
-                self.set_status(i18n::fmt1(t.error_prefix, "err", err.to_string()), cx);
-            }
-        }
+        let template = t.created_container;
+        self.with_busy(cx, move |client| {
+            let created = client.create_container(request)?;
+            Ok(i18n::fmt1(template, "name", &created))
+        });
     }
 
     pub(crate) fn open_container_logs(&mut self, index: usize, cx: &mut Context<Self>) {
@@ -132,25 +154,14 @@ impl AppView {
             return;
         };
         let key = Self::container_key(item);
-        let Some(client) = self.client.clone() else {
-            return;
-        };
-        let t = self.t();
-        self.busy = true;
-        cx.notify();
-        match client.container_logs(&key) {
-            Ok(text) => {
-                self.busy = false;
-                self.logs_title = key.into();
-                self.logs_text = text.into();
-                self.logs_modal_open = true;
-            }
-            Err(err) => {
-                self.busy = false;
-                self.set_status(i18n::fmt1(t.container_logs_failed, "err", err.to_string()), cx);
-            }
-        }
-        cx.notify();
+        let title = key.clone();
+        let failed = self.t().container_logs_failed;
+        self.with_busy(cx, move |client| {
+            let text = client
+                .container_logs(&key)
+                .map_err(|e| anyhow::anyhow!(i18n::fmt1(failed, "err", e.to_string())))?;
+            Ok(format!("__LOGS__\0{title}\0{text}"))
+        });
     }
     pub(crate) fn render_container_row(
         &self,
@@ -593,8 +604,8 @@ impl AppView {
                                 Button::new("create-cancel")
                                     .label(t.close)
                                     .disabled(creating)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.dismiss_create_modal(cx);
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.dismiss_create_modal(window, cx);
                                     })),
                             )
                             .child(
@@ -603,8 +614,8 @@ impl AppView {
                                     .label(if creating { t.working } else { t.create })
                                     .icon(IconName::Plus)
                                     .disabled(self.sdk_locked() || creating || self.pull_phase == PullPhase::Pulling)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.submit_create_container(cx);
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.submit_create_container(window, cx);
                                     })),
                             ),
                     ),

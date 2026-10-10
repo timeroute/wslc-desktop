@@ -147,6 +147,7 @@ pub struct Strings {
     pub parse_bind_mounts_failed: &'static str,
     pub container_logs_failed: &'static str,
     pub image_empty: &'static str,
+    pub op_channel_disconnected: &'static str,
 
     pub engine_connected: &'static str,
     pub engine_unusable: &'static str,
@@ -215,7 +216,7 @@ pub static EN: Strings = Strings {
     sdk_locked: "Waiting for WSL Containers SDK…",
 
     create_container_title: "Create container",
-    create_container_intro: "Configure ports, bind mounts, and options, then create through the SDK.",
+    create_container_intro: "Map host ports (e.g. 8080:80) to reach the container. Leave command empty to use the image entrypoint.",
     image_label: "Image",
     name_optional: "Name (optional)",
     name_placeholder: "optional container name",
@@ -228,7 +229,7 @@ pub static EN: Strings = Strings {
     auto_remove_off: "Off",
     auto_remove_badge: "auto-remove",
     command_label: "Command (optional)",
-    command_placeholder: "extra args, e.g. nginx -g daemon off;",
+    command_placeholder: "optional; leave empty for image default",
     volume_placeholder: "my-volume",
 
     container_logs_title: "Container logs",
@@ -264,6 +265,7 @@ pub static EN: Strings = Strings {
     parse_bind_mounts_failed: "Invalid bind mounts: {err}",
     container_logs_failed: "Logs failed: {err}",
     image_empty: "Image is required",
+    op_channel_disconnected: "Background operation disconnected",
 
     engine_connected: "Connected via WSL Containers SDK {bin}",
     engine_unusable: "SDK unavailable ({err}). Retry install in the setup dialog, or install/update WSL (`wsl --install` / `wsl --update`).",
@@ -332,7 +334,7 @@ pub static ZH: Strings = Strings {
     sdk_locked: "等待 WSL Containers SDK…",
 
     create_container_title: "创建容器",
-    create_container_intro: "配置端口、绑定挂载与选项，然后通过 SDK 创建。",
+    create_container_intro: "请映射主机端口（如 8080:80）才能从本机访问。命令留空则使用镜像默认入口。",
     image_label: "镜像",
     name_optional: "名称（可选）",
     name_placeholder: "可选容器名称",
@@ -345,7 +347,7 @@ pub static ZH: Strings = Strings {
     auto_remove_off: "关",
     auto_remove_badge: "退出删除",
     command_label: "命令（可选）",
-    command_placeholder: "额外参数，如 nginx -g daemon off;",
+    command_placeholder: "可选；留空则用镜像默认命令",
     volume_placeholder: "我的卷",
 
     container_logs_title: "容器日志",
@@ -381,6 +383,7 @@ pub static ZH: Strings = Strings {
     parse_bind_mounts_failed: "绑定挂载格式无效: {err}",
     container_logs_failed: "获取日志失败: {err}",
     image_empty: "请填写镜像",
+    op_channel_disconnected: "后台操作已断开",
 
     engine_connected: "已通过 WSL Containers SDK {bin} 连接",
     engine_unusable: "SDK 不可用（{err}）。请在安装弹窗中重试，或自行安装/更新 WSL（`wsl --install` / `wsl --update`）。",

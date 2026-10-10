@@ -24,18 +24,22 @@ use super::poll::recv_all;
 use super::widgets::{modal_panel, modal_scrim};
 
 impl AppView {
-    pub(crate) fn open_pull_modal(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn open_pull_modal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.sdk_locked() {
             return;
         }
+        self.pull_input.update(cx, |state, cx| {
+            state.set_value("alpine:latest", window, cx);
+        });
+        self.pull_phase = PullPhase::Idle;
+        self.pull_status = self.t().pull_hint.into();
+        self.pull_progress = 0.0;
+        self.pull_logs.clear();
         self.pull_modal_open = true;
-        if self.pull_phase == PullPhase::Idle {
-            self.pull_status = self.t().pull_hint.into();
-        }
         cx.notify();
     }
 
-    pub(crate) fn dismiss_pull_modal(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn dismiss_pull_modal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.pull_phase == PullPhase::Pulling {
             return;
         }
@@ -44,6 +48,9 @@ impl AppView {
         self.pull_status = self.t().pull_hint.into();
         self.pull_progress = 0.0;
         self.pull_logs.clear();
+        self.pull_input.update(cx, |state, cx| {
+            state.set_value("alpine:latest", window, cx);
+        });
         cx.notify();
     }
     pub(crate) fn append_pull_log(&mut self, line: impl Into<SharedString>) {
@@ -341,8 +348,8 @@ impl AppView {
                                 .child(
                                     Button::new("pull-modal-close")
                                         .label(t.close)
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.dismiss_pull_modal(cx);
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.dismiss_pull_modal(window, cx);
                                         })),
                                 ),
                         )
@@ -378,8 +385,8 @@ impl AppView {
                                     .label(t.pull)
                                     .icon(IconName::ArrowDown)
                                     .disabled(self.ops_disabled())
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.open_pull_modal(cx);
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.open_pull_modal(window, cx);
                                     })),
                             )
                             .child(

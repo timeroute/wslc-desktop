@@ -165,11 +165,49 @@ fn map_sdk_image(image: wslc::ImageInfo) -> ImageInfo {
 
 fn state_label(state: wslc::ContainerState) -> String {
     match state {
-        wslc::ContainerState::Running => "Up".into(),
-        wslc::ContainerState::Created => "Created".into(),
-        wslc::ContainerState::Exited => "Exited".into(),
-        wslc::ContainerState::Deleted => "Deleted".into(),
-        wslc::ContainerState::Invalid => "Invalid".into(),
+        wslc::ContainerState::Running => "running".into(),
+        wslc::ContainerState::Created => "created".into(),
+        wslc::ContainerState::Exited => "exited".into(),
+        wslc::ContainerState::Deleted => "deleted".into(),
+        wslc::ContainerState::Invalid => "invalid".into(),
+    }
+}
+
+/// Prefer inspect JSON status when present (closer to CLI wording).
+fn status_from_handle(handle: &wslc::Container) -> String {
+    if let Ok(raw) = handle.inspect() {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) {
+            for path in [
+                &["State", "Status"][..],
+                &["state", "status"][..],
+                &["Status"][..],
+                &["status"][..],
+            ] {
+                let mut cur = &value;
+                let mut ok = true;
+                for key in path {
+                    match cur.get(*key) {
+                        Some(next) => cur = next,
+                        None => {
+                            ok = false;
+                            break;
+                        }
+                    }
+                }
+                if ok {
+                    if let Some(s) = cur.as_str() {
+                        let trimmed = s.trim();
+                        if !trimmed.is_empty() {
+                            return trimmed.to_ascii_lowercase();
+                        }
+                    }
+                }
+            }
+        }
+    }
+    match handle.state() {
+        Ok(state) => state_label(state),
+        Err(err) => format!("error ({err})"),
     }
 }
 
@@ -308,7 +346,8 @@ impl LiveState {
                         .delete(wslc::DeleteContainerOptions::default().force(true));
                 }
                 Ok(state) => {
-                    let status = state_label(state);
+                    let _ = state; // status comes from inspect when possible
+                    let status = status_from_handle(&tracked.handle);
                     let inspect_ports = parse_ports_from_inspect(&tracked.handle);
                     if !inspect_ports.is_empty() {
                         tracked.ports = inspect_ports;
@@ -428,6 +467,8 @@ impl LiveState {
             };
         }
 
+        // Only override init when the user supplies a command. Otherwise keep
+        // the image ENTRYPOINT/CMD (e.g. nginx) so the container actually serves.
         if let Some(cmd) = request
             .command
             .as_deref()
@@ -439,27 +480,30 @@ impl LiveState {
                 return Err(anyhow!("command is empty"));
             }
             builder = builder.init_process(wslc::ProcessOptions::new(args));
-        } else {
-            // Keep a long-running shell so Start/Stop remain useful when the
-            // image would otherwise exit immediately.
-            builder = builder.init_process(wslc::ProcessOptions::new([
-                "/bin/sh",
-                "-c",
-                "while true; do sleep 3600; done",
-            ]));
         }
 
         let handle = builder.create().map_err(|e| anyhow!("{e}"))?;
         handle.start().map_err(|e| anyhow!("{e}"))?;
         let id = handle.id().unwrap_or_else(|_| name.clone());
 
+        let mut ports = ports_label;
+        let inspect_ports = parse_ports_from_inspect(&handle);
+        if !inspect_ports.is_empty() {
+            ports = inspect_ports;
+        }
+        let mut volumes = volumes_label;
+        let inspect_vols = parse_volumes_from_inspect(&handle);
+        if !inspect_vols.is_empty() {
+            volumes = inspect_vols;
+        }
+
         self.containers.push(TrackedContainer {
             id,
             name: name.clone(),
             image: image.to_string(),
             created: "Just now".into(),
-            ports: ports_label,
-            volumes: volumes_label,
+            ports,
+            volumes,
             auto_remove: request.auto_remove,
             handle,
         });
