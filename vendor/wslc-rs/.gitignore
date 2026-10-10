@@ -1,9 +1,0 @@
-/target/
-/.cargo-home-temp/
-/.cargo-home-publish/
-/.wslc-sdk/
-/.worktrees/
-**/*.rs.bk
-*.pdb
-*.ilk
-*.exe

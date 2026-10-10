@@ -2,12 +2,12 @@
 
 面向 Windows **WSL Containers（WSLc）** 的轻量级桌面管理器，基于 [GPUI Kit](https://gpui-kit.com)（Zed GPUI + 组件库）构建。
 
-通过官方 **WSL Containers SDK**（Rust crate [`wslc`](https://crates.io/crates/wslc)）浏览与管理容器、镜像与 VHD 卷。应用使用**独立会话** `wslc-desktop`（数据在 `%LOCALAPPDATA%\WSLcDesktop\session\`），与 `wslc` CLI 会话隔离——桌面端镜像/容器需在本应用内拉取与创建。MSI **不捆绑** DLL：首次启动以**阻塞弹窗**安装/更新 SDK 到 `%LOCALAPPDATA%\WSLcDesktop\sdk\`；Live 失败则保持锁定直至重试成功或自行修好 WSL。
+通过 **WSL Containers SDK**（Rust 绑定使用自维护 fork [`timeroute/wslc-rs`](https://github.com/timeroute/wslc-rs)，见下方）浏览与管理容器、镜像与 VHD 卷。应用使用**独立会话** `wslc-desktop`（数据在 `%LOCALAPPDATA%\WSLcDesktop\session\`），与默认 `wslc` CLI 会话隔离——桌面端镜像/容器需在本应用内拉取与创建。MSI **不捆绑** DLL：首次启动以**阻塞弹窗**安装/更新 SDK 到 `%LOCALAPPDATA%\WSLcDesktop\sdk\`；Live 失败则保持锁定直至重试成功或自行修好 WSL。
 
 ## 功能
 
 - **总览（默认）**：引擎 / SDK / 应用版本、会话信息、容器·镜像·卷摘要
-- **Containers**：工具栏创建；行内 Start / Stop / Restart / Logs / Inspect / Exec / Remove（确认）；catalog + `OpenContainer` 跨重启恢复
+- **Containers**：工具栏创建；行内 Start / Stop / Restart / Logs（fork 的 `LogsOptions` → `wslc container logs`）/ Inspect / Exec / Remove（确认）；catalog + `OpenContainer` 跨重启恢复
 - **Images**：工具栏拉取；行内创建容器 / 删除（确认）
 - **Volumes**：工具栏弹窗创建（1/2/5/10 GiB）；行内删除（确认）；创建容器时可挂命名卷
 - **引擎状态**：LIVE（独立 `wslc-desktop` 会话）；未就绪时全屏 SDK 安装弹窗（OFF）
@@ -132,6 +132,24 @@ git push origin v0.1.0
 成功后可在对应 workflow run 的 **Artifacts** 下载 `wslc-desktop-msi`；打 tag 时还会出现在 **Releases**。
 
 工作流在 `windows-latest` 上安装 Rust MSVC、WiX Toolset、`cargo-wix`，再 `cargo wix` 产出带桌面快捷方式的 MSI。
+
+## 依赖自己的 `wslc-rs` fork
+
+本仓库 **不** 再 vendor 整棵树，而是在 `Cargo.toml` 里用 git 依赖钉死 fork 提交：
+
+```toml
+[target.'cfg(windows)'.dependencies]
+wslc = { git = "https://github.com/timeroute/wslc-rs", rev = "<commit>" }
+```
+
+**日常流程：**
+
+1. 在 [timeroute/wslc-rs](https://github.com/timeroute/wslc-rs) 打补丁并 push 到 `master`（或你的分支）
+2. 记下新 commit SHA：`git rev-parse HEAD`
+3. 改桌面端 `Cargo.toml` 的 `rev = "…"`
+4. 在 Windows 上 `cargo update -p wslc`（或直接 `cargo build`），提交更新后的 `Cargo.lock`
+
+**Logs：** fork 提供 `Container::logs(LogsOptions)` / `Session::logs(...)`。公开 C SDK 尚无 Logs 导出，实现走 `wslc --session <name> container logs`（可用 `WSLC_CLI_PATH` 覆盖可执行文件）。桌面端默认 `tail(200)` + `timestamps`，不用 `follow`（避免卡住 UI）。
 
 ## 项目结构
 
