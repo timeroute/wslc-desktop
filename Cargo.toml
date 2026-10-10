@@ -1,0 +1,37 @@
+[package]
+name = "wslc-desktop"
+version = "0.1.0"
+edition = "2024"
+description = "Lightweight desktop manager for Windows WSL Containers (WSLc)"
+license = "Apache-2.0"
+readme = "README.md"
+keywords = ["wslc", "wsl", "containers", "gpui", "desktop"]
+categories = ["gui", "development-tools"]
+repository = "https://cursor.com/codebase/quentinz/wslc-desktop"
+authors = ["WSLc Desktop Contributors"]
+
+[package.metadata.wix]
+# Used by `cargo wix` on Windows to produce target/wix/*.msi
+name = "WSLc Desktop"
+product-name = "WSLc Desktop"
+manufacturer = "WSLc Desktop"
+license = false
+eula = false
+
+[dependencies]
+anyhow = "1"
+gpui-kit = "0.7.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+smol = "2"
+
+[profile.dev.package]
+gpui-pre = { opt-level = 3 }
+gpui-component = { opt-level = 3 }
+gpui-kit = { opt-level = 3 }
+gpui-kit-assets = { opt-level = 3 }
+gpui-pre-macros = { opt-level = 3 }
+gpui-pre-platform = { opt-level = 3 }
+rustybuzz = { opt-level = 3 }
+taffy = { opt-level = 3 }
+ttf-parser = { opt-level = 3 }
