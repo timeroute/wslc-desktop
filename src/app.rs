@@ -556,7 +556,8 @@ impl AppView {
                 h_flex()
                     .id("title-bar-settings")
                     .absolute()
-                    .inset_y_0()
+                    .top_0()
+                    .bottom_0()
                     // Leave room for Windows min/max/close (~3 × 35px).
                     .right(px(120.))
                     .items_center()
