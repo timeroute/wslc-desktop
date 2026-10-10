@@ -84,6 +84,13 @@ impl AppView {
             .child(
                 SidebarGroup::new(t.browse).child(
                     SidebarMenu::new().children([
+                        SidebarMenuItem::new(t.overview)
+                            .icon(IconName::LayoutDashboard)
+                            .active(self.section == Section::Overview)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.section = Section::Overview;
+                                cx.notify();
+                            })),
                         SidebarMenuItem::new(t.containers)
                             .icon(IconName::HardDrive)
                             .active(self.section == Section::Containers)

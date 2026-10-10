@@ -550,23 +550,47 @@ impl LiveState {
 
     fn container_logs(&self, key: &str) -> Result<String> {
         let tracked = self.find_container(key)?;
-        let mut sections = Vec::new();
-
-        match tracked.handle.inspect() {
-            Ok(raw) => {
-                if let Ok(pretty) = serde_json::from_str::<serde_json::Value>(&raw) {
-                    sections.push(format!(
-                        "=== inspect ===\n{}",
-                        serde_json::to_string_pretty(&pretty).unwrap_or(raw)
-                    ));
-                } else {
-                    sections.push(format!("=== inspect ===\n{raw}"));
-                }
-            }
-            Err(err) => sections.push(format!("=== inspect ===\n(unavailable: {err})")),
-        }
-
-        let script = "set +e; echo '=== process list ==='; (ps aux 2>/dev/null || ps -ef 2>/dev/null); echo; echo '=== recent logs ==='; (tail -n 100 /var/log/*.log 2>/dev/null; true)";
+        // WSLC Rust SDK has no Logs API yet; collect runtime log files via exec.
+        // Never dump inspect JSON here — that is metadata, not container output.
+        let script = r#"set +e
+found=0
+# Common application / system log paths inside the container.
+for f in \
+  /var/log/nginx/access.log /var/log/nginx/error.log \
+  /var/log/apache2/access.log /var/log/apache2/error.log \
+  /var/log/httpd/access_log /var/log/httpd/error_log \
+  /var/log/containers/*.log /var/log/*.log \
+  /app/*.log /tmp/*.log /var/log/syslog /var/log/messages
+do
+  [ -f "$f" ] || continue
+  echo "===== $f ====="
+  tail -n 200 "$f" 2>/dev/null
+  echo
+  found=1
+done
+# Fall back to any readable files under /var/log (depth-limited).
+if [ "$found" -eq 0 ]; then
+  while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    echo "===== $f ====="
+    tail -n 100 "$f" 2>/dev/null
+    echo
+    found=1
+  done <<EOF
+$(find /var/log -type f \( -name '*.log' -o -name '*log' \) 2>/dev/null | head -n 20)
+EOF
+fi
+if [ "$found" -eq 0 ]; then
+  echo "(no log files found under common paths)"
+  echo
+  echo "===== pid 1 ====="
+  if [ -r /proc/1/cmdline ]; then
+    tr '\0' ' ' < /proc/1/cmdline 2>/dev/null
+    echo
+  fi
+  (ps aux 2>/dev/null || ps -ef 2>/dev/null | head -n 30)
+fi
+"#;
         match tracked.handle.exec(
             wslc::ProcessOptions::new(["/bin/sh", "-c", script])
                 .capture_stdout()
@@ -583,17 +607,15 @@ impl LiveState {
                         body.push_str(&err);
                     }
                     if body.trim().is_empty() {
-                        sections.push("=== runtime ===\n(no process output)".into());
+                        Ok("(no runtime log output)".into())
                     } else {
-                        sections.push(body);
+                        Ok(body)
                     }
                 }
-                Err(err) => sections.push(format!("=== runtime ===\n(wait failed: {err})")),
+                Err(err) => Err(anyhow!("wait for log collector failed: {err}")),
             },
-            Err(err) => sections.push(format!("=== runtime ===\n(exec failed: {err})")),
+            Err(err) => Err(anyhow!("exec log collector failed: {err}")),
         }
-
-        Ok(sections.join("\n\n"))
     }
 
     fn pull(&self, reference: &str, events: &Sender<PullEvent>) {

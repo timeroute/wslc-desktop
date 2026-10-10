@@ -1,6 +1,6 @@
 
 use gpui_kit::component::{
-    ActiveTheme, Disableable as _, Icon, IconName, StyledExt as _,
+    ActiveTheme, Disableable as _, Icon, IconName, Sizable as _, StyledExt as _,
     button::{Button, ButtonVariants as _},
     h_flex,
     input::Input,
@@ -104,6 +104,7 @@ impl AppView {
                     .child(div().flex_1().min_w_0().child(Input::new(&self.volume_input)))
                     .child(
                         Button::new("create-volume")
+                            .small()
                             .primary()
                             .label(t.create)
                             .icon(IconName::Plus)
@@ -119,6 +120,7 @@ impl AppView {
                     )
                     .child(
                         Button::new("remove-volume")
+                            .small()
                             .danger()
                             .label(t.remove)
                             .disabled(

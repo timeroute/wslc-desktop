@@ -16,6 +16,7 @@ use crate::wslc::{
 
 mod containers;
 mod images;
+mod overview;
 mod parsing;
 mod poll;
 mod refresh;
@@ -110,7 +111,7 @@ impl AppView {
         let mut view = Self {
             client: None,
             status: EngineStatus::unavailable(t.sdk_locked),
-            section: Section::Containers,
+            section: Section::Overview,
             locale,
             theme_mode: ThemeMode::Dark,
             containers: Vec::new(),
@@ -181,6 +182,9 @@ impl Render for AppView {
                                     .child(
                                         div().id("section").flex_1().min_h_0().map(|panel| {
                                             match self.section {
+                                                Section::Overview => {
+                                                    panel.child(self.render_overview(cx))
+                                                }
                                                 Section::Containers => {
                                                     panel.child(self.render_containers(cx))
                                                 }

@@ -9,15 +9,17 @@ pub(crate) const MAX_SDK_LOG_LINES: usize = 500;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Section {
     #[default]
-    Containers = 0,
-    Images = 1,
-    Volumes = 2,
-    Settings = 3,
+    Overview = 0,
+    Containers = 1,
+    Images = 2,
+    Volumes = 3,
+    Settings = 4,
 }
 
 impl Section {
     pub(crate) fn label(self, t: &Strings) -> &'static str {
         match self {
+            Self::Overview => t.overview,
             Self::Containers => t.containers,
             Self::Images => t.images,
             Self::Volumes => t.volumes,
