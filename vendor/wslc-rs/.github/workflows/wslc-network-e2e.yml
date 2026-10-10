@@ -1,0 +1,183 @@
+name: WSLC network E2E
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/wslc-network-e2e.yml"
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  push:
+    branches:
+      - master
+    paths:
+      - ".github/workflows/wslc-network-e2e.yml"
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  workflow_dispatch:
+    inputs:
+      runner_labels:
+        description: 'JSON runner labels, for example ["self-hosted","Windows","X64"] or ["windows-latest"]'
+        required: false
+        default: '["windows-latest"]'
+      package_version:
+        description: "Microsoft.WSL.Containers NuGet package version"
+        required: false
+        default: "2.9.3"
+      registry_mirror:
+        description: "Optional Docker Hub registry mirror host used by the real pull/container E2E"
+        required: false
+        default: ""
+
+jobs:
+  hosted-preflight:
+    name: Hosted Windows preflight
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      WSLC_SDK_PACKAGE_VERSION: "2.9.3"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Microsoft WSL Containers SDK
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = "$env:WSLC_SDK_PACKAGE_VERSION"
+          $sdkRoot = Join-Path $env:RUNNER_TEMP "wslc-sdk"
+          New-Item -ItemType Directory -Force -Path $sdkRoot | Out-Null
+          nuget install Microsoft.WSL.Containers -Version $version -OutputDirectory $sdkRoot -DirectDownload -NonInteractive
+          $packageDir = Join-Path $sdkRoot "Microsoft.WSL.Containers.$version"
+          $nativeDir = Join-Path $packageDir "runtimes\win-x64\native"
+          if (-not (Test-Path (Join-Path $nativeDir "wslcsdk.dll"))) {
+            throw "wslcsdk.dll was not found under $nativeDir"
+          }
+          "WSLC_NATIVE_DIR=$nativeDir" >> $env:GITHUB_ENV
+          "$nativeDir" >> $env:GITHUB_PATH
+
+      - name: Probe host registry access
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          try {
+            Invoke-WebRequest -Uri "https://registry-1.docker.io/v2/" -Method Head -TimeoutSec 30 | Out-Null
+          } catch {
+            $response = $_.Exception.Response
+            if ($null -eq $response -or [int]$response.StatusCode -ne 401) {
+              throw
+            }
+            Write-Host "Docker Hub registry probe returned 401, which confirms network reachability."
+          }
+
+      - name: Show WSLC prerequisites
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Write-Host "WSLC native dir: $env:WSLC_NATIVE_DIR"
+          if (Get-Command wslc -ErrorAction SilentlyContinue) {
+            wslc version
+          } else {
+            Write-Host "wslc.exe is not on PATH; Rust integration tests will load wslcsdk.dll directly."
+          }
+          if (Get-Command wsl -ErrorAction SilentlyContinue) {
+            wsl --status
+          } else {
+            Write-Host "wsl.exe is not available on this runner."
+          }
+
+      - name: Compile integration tests
+        shell: pwsh
+        run: cargo test -p wslc --features integration --test integration_smoke --no-run
+
+      - name: Run host-safe validation test
+        shell: pwsh
+        run: cargo test -p wslc --features integration --test integration_smoke rust_side_validation_runs_before_wslc_calls
+
+      - name: Explain hosted runner limitation
+        shell: pwsh
+        run: |
+          Write-Host "GitHub-hosted Windows runners can install the preview WSLC SDK, but they may not have the WSL package required by the real WSLC runtime."
+          Write-Host "Run this workflow manually on a self-hosted Windows runner with WSL + WSLC installed to execute the full Alpine pull/container E2E."
+
+  alpine-echo-manual:
+    name: Pull Alpine and run echo
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    timeout-minutes: 45
+    env:
+      WSLC_SDK_PACKAGE_VERSION: ${{ inputs.package_version }}
+      WSLC_REGISTRY_MIRROR: ${{ inputs.registry_mirror }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Microsoft WSL Containers SDK
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = "$env:WSLC_SDK_PACKAGE_VERSION"
+          $sdkRoot = Join-Path $env:RUNNER_TEMP "wslc-sdk"
+          New-Item -ItemType Directory -Force -Path $sdkRoot | Out-Null
+          nuget install Microsoft.WSL.Containers -Version $version -OutputDirectory $sdkRoot -DirectDownload -NonInteractive
+          $packageDir = Join-Path $sdkRoot "Microsoft.WSL.Containers.$version"
+          $nativeDir = Join-Path $packageDir "runtimes\win-x64\native"
+          if (-not (Test-Path (Join-Path $nativeDir "wslcsdk.dll"))) {
+            throw "wslcsdk.dll was not found under $nativeDir"
+          }
+          "WSLC_NATIVE_DIR=$nativeDir" >> $env:GITHUB_ENV
+          "$nativeDir" >> $env:GITHUB_PATH
+
+      - name: Probe host registry access
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          try {
+            Invoke-WebRequest -Uri "https://registry-1.docker.io/v2/" -Method Head -TimeoutSec 30 | Out-Null
+          } catch {
+            $response = $_.Exception.Response
+            if ($null -eq $response -or [int]$response.StatusCode -ne 401) {
+              throw
+            }
+            Write-Host "Docker Hub registry probe returned 401, which confirms network reachability."
+          }
+
+      - name: Show WSLC prerequisites
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Write-Host "WSLC native dir: $env:WSLC_NATIVE_DIR"
+          if (Get-Command wslc -ErrorAction SilentlyContinue) {
+            wslc version
+          } else {
+            Write-Host "wslc.exe is not on PATH; Rust integration tests will load wslcsdk.dll directly."
+          }
+          if (Get-Command wsl -ErrorAction SilentlyContinue) {
+            wsl --status
+          } else {
+            Write-Host "wsl.exe is not available on this runner."
+          }
+
+      - name: Run default WSLC integration tests
+        shell: pwsh
+        run: cargo test -p wslc --features integration --test integration_smoke
+
+      - name: Run Docker Hub Alpine E2E
+        shell: pwsh
+        run: cargo test -p wslc --features integration --test integration_smoke -- --ignored --nocapture

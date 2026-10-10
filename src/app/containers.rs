@@ -17,7 +17,7 @@ use crate::wslc::{
 
 use super::state::{ConfirmAction, PullPhase};
 use super::AppView;
-use super::parsing::{parse_bind_mounts, parse_port_mappings};
+use super::parsing::{parse_bind_mounts, parse_named_volumes, parse_port_mappings};
 use super::widgets::{modal_panel, modal_scrim};
 
 impl AppView {
@@ -37,6 +37,10 @@ impl AppView {
         self.bind_mounts_input.update(cx, |state, cx| {
             state.set_value("", window, cx);
             state.set_placeholder(t.bind_mounts_placeholder, window, cx);
+        });
+        self.named_volumes_input.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+            state.set_placeholder(t.named_volumes_placeholder, window, cx);
         });
         self.command_input.update(cx, |state, cx| {
             state.set_value("", window, cx);
@@ -107,6 +111,7 @@ impl AppView {
         };
         let ports_raw = self.ports_input.read(cx).value().to_string();
         let mounts_raw = self.bind_mounts_input.read(cx).value().to_string();
+        let named_raw = self.named_volumes_input.read(cx).value().to_string();
         let command_raw = self.command_input.read(cx).value().to_string();
         let command_trim = command_raw.trim();
         let command_opt = if command_trim.is_empty() {
@@ -122,13 +127,20 @@ impl AppView {
                 return;
             }
         };
-        let volumes = match parse_bind_mounts(&mounts_raw) {
+        let mut volumes = match parse_bind_mounts(&mounts_raw) {
             Ok(v) => v,
             Err(err) => {
                 self.set_status(i18n::fmt1(t.parse_bind_mounts_failed, "err", err), cx);
                 return;
             }
         };
+        match parse_named_volumes(&named_raw) {
+            Ok(mut named) => volumes.append(&mut named),
+            Err(err) => {
+                self.set_status(i18n::fmt1(t.parse_named_volumes_failed, "err", err), cx);
+                return;
+            }
+        }
 
         let request = CreateContainerRequest {
             image,
@@ -159,6 +171,71 @@ impl AppView {
         self.with_busy(cx, move |client| {
             let text = client
                 .container_logs(&key)
+                .map_err(|e| anyhow::anyhow!(i18n::fmt1(failed, "err", e.to_string())))?;
+            Ok(format!("__LOGS__\0{title}\0{text}"))
+        });
+    }
+
+    pub(crate) fn open_container_inspect(&mut self, index: usize, cx: &mut Context<Self>) {
+        if self.ops_disabled() {
+            return;
+        }
+        let Some(item) = self.containers.get(index) else {
+            return;
+        };
+        let key = Self::container_key(item);
+        let title = format!("{} · inspect", key);
+        let failed = self.t().container_inspect_failed;
+        self.with_busy(cx, move |client| {
+            let text = client
+                .container_inspect(&key)
+                .map_err(|e| anyhow::anyhow!(i18n::fmt1(failed, "err", e.to_string())))?;
+            Ok(format!("__LOGS__\0{title}\0{text}"))
+        });
+    }
+
+    pub(crate) fn open_exec_modal(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.ops_disabled() {
+            return;
+        }
+        let Some(item) = self.containers.get(index) else {
+            return;
+        };
+        let key = Self::container_key(item);
+        let t = self.t();
+        self.exec_target_key = key.into();
+        self.exec_input.update(cx, |state, cx| {
+            state.set_value("uname -a", window, cx);
+            state.set_placeholder(t.container_exec_placeholder, window, cx);
+        });
+        self.exec_modal_open = true;
+        cx.notify();
+    }
+
+    pub(crate) fn dismiss_exec_modal(&mut self, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        self.exec_modal_open = false;
+        self.exec_target_key = SharedString::default();
+        cx.notify();
+    }
+
+    pub(crate) fn submit_exec(&mut self, cx: &mut Context<Self>) {
+        if self.sdk_locked() || self.busy {
+            return;
+        }
+        let key = self.exec_target_key.to_string();
+        if key.is_empty() {
+            return;
+        }
+        let command = self.exec_input.read(cx).value().to_string();
+        let title = format!("{key} · exec");
+        let failed = self.t().container_exec_failed;
+        self.exec_modal_open = false;
+        self.with_busy(cx, move |client| {
+            let text = client
+                .container_exec(&key, &command)
                 .map_err(|e| anyhow::anyhow!(i18n::fmt1(failed, "err", e.to_string())))?;
             Ok(format!("__LOGS__\0{title}\0{text}"))
         });
@@ -338,12 +415,49 @@ impl AppView {
                                     })),
                             )
                             .child(
+                                Button::new(("container-restart", index))
+                                    .small()
+                                    .label(t.restart)
+                                    .disabled(ops_off)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.selected_container = Some(index);
+                                        let key = this
+                                            .containers
+                                            .get(index)
+                                            .map(Self::container_key)
+                                            .unwrap_or_default();
+                                        let template = this.t().restarted;
+                                        this.with_busy(cx, move |client| {
+                                            client.restart_container(&key)?;
+                                            Ok(i18n::fmt1(template, "name", &key))
+                                        });
+                                    })),
+                            )
+                            .child(
                                 Button::new(("container-logs", index))
                                     .small()
                                     .label(t.logs)
                                     .disabled(ops_off)
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.open_container_logs(index, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new(("container-inspect", index))
+                                    .small()
+                                    .label(t.inspect)
+                                    .disabled(ops_off)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.open_container_inspect(index, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new(("container-exec", index))
+                                    .small()
+                                    .label(t.exec)
+                                    .disabled(ops_off || !running)
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.open_exec_modal(index, window, cx);
                                     })),
                             )
                             .child(
@@ -573,6 +687,12 @@ impl AppView {
                             .child(Input::new(&self.bind_mounts_input)),
                     )
                     .child(
+                        v_flex()
+                            .gap_2()
+                            .child(Label::new(t.named_volumes_label))
+                            .child(Input::new(&self.named_volumes_input)),
+                    )
+                    .child(
                         h_flex()
                             .items_center()
                             .justify_between()
@@ -625,12 +745,62 @@ impl AppView {
             )
     }
 
+    pub(crate) fn render_exec_modal(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = self.t();
+        let running = self.busy && self.exec_modal_open;
+        modal_scrim(
+            "exec-modal",
+            cx,
+            modal_panel(cx)
+                .w(px(520.))
+                .child(div().font_semibold().text_base().child(t.container_exec_title))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(format!("{} · {}", t.container_exec_intro, self.exec_target_key)),
+                )
+                .child(Input::new(&self.exec_input))
+                .child(
+                    h_flex()
+                        .justify_end()
+                        .gap_2()
+                        .child(
+                            Button::new("exec-cancel")
+                                .small()
+                                .label(t.cancel)
+                                .disabled(running)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.dismiss_exec_modal(cx);
+                                })),
+                        )
+                        .child(
+                            Button::new("exec-run")
+                                .small()
+                                .primary()
+                                .label(if running { t.working } else { t.container_exec_run })
+                                .disabled(self.sdk_locked() || running)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.submit_exec(cx);
+                                })),
+                        ),
+                ),
+        )
+    }
+
     pub(crate) fn render_logs_modal(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = self.t();
         let body: SharedString = if self.logs_text.is_empty() {
             t.logs_empty.into()
         } else {
             self.logs_text.clone()
+        };
+        let heading = if self.logs_title.to_ascii_lowercase().contains("inspect") {
+            t.container_inspect_title
+        } else if self.logs_title.to_ascii_lowercase().contains("exec") {
+            t.container_exec_title
+        } else {
+            t.container_logs_title
         };
 
         modal_scrim(
@@ -643,7 +813,7 @@ impl AppView {
                         h_flex()
                             .items_center()
                             .justify_between()
-                            .child(div().font_semibold().text_base().child(t.container_logs_title))
+                            .child(div().font_semibold().text_base().child(heading))
                             .child(
                                 div()
                                     .text_xs()

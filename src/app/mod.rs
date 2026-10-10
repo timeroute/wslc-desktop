@@ -11,7 +11,8 @@ use gpui_kit::*;
 
 use crate::i18n::Locale;
 use crate::wslc::{
-    ContainerInfo, EngineStatus, ImageInfo, PullEvent, SdkSetupEvent, VolumeInfo, WslcClient,
+    ContainerInfo, EngineStatus, ImageInfo, PullEvent, SdkSetupEvent, SessionPrefs, VolumeInfo,
+    WslcClient,
 };
 
 mod confirm;
@@ -54,15 +55,21 @@ pub struct AppView {
     name_input: Entity<InputState>,
     ports_input: Entity<InputState>,
     bind_mounts_input: Entity<InputState>,
+    named_volumes_input: Entity<InputState>,
     command_input: Entity<InputState>,
     pull_input: Entity<InputState>,
     volume_input: Entity<InputState>,
+    exec_input: Entity<InputState>,
     create_auto_remove: bool,
+    volume_size_gib: u32,
+    session_prefs: SessionPrefs,
     pull_modal_open: bool,
     create_modal_open: bool,
     logs_modal_open: bool,
     logs_title: SharedString,
     logs_text: SharedString,
+    exec_modal_open: bool,
+    exec_target_key: SharedString,
     confirm: Option<ConfirmAction>,
     pull_phase: PullPhase,
     pull_status: SharedString,
@@ -99,6 +106,9 @@ impl AppView {
         let bind_mounts_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder(t.bind_mounts_placeholder)
         });
+        let named_volumes_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(t.named_volumes_placeholder)
+        });
         let command_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder(t.command_placeholder)
         });
@@ -109,6 +119,12 @@ impl AppView {
         });
         let volume_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(t.volume_placeholder));
+        let exec_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(t.container_exec_placeholder)
+                .default_value("uname -a")
+        });
+        let session_prefs = WslcClient::load_session_prefs();
 
         let mut view = Self {
             client: None,
@@ -131,15 +147,21 @@ impl AppView {
             name_input,
             ports_input,
             bind_mounts_input,
+            named_volumes_input,
             command_input,
             pull_input,
             volume_input,
+            exec_input,
             create_auto_remove: false,
+            volume_size_gib: 1,
+            session_prefs,
             pull_modal_open: false,
             create_modal_open: false,
             logs_modal_open: false,
             logs_title: SharedString::default(),
             logs_text: SharedString::default(),
+            exec_modal_open: false,
+            exec_target_key: SharedString::default(),
             confirm: None,
             pull_phase: PullPhase::Idle,
             pull_status: t.pull_hint.into(),
@@ -215,6 +237,7 @@ impl Render for AppView {
                 root.child(self.render_create_modal(cx))
             })
             .when(self.logs_modal_open, |root| root.child(self.render_logs_modal(cx)))
+            .when(self.exec_modal_open, |root| root.child(self.render_exec_modal(cx)))
             .when(self.confirm.is_some(), |root| {
                 root.child(self.render_confirm_modal(cx))
             })
@@ -222,6 +245,7 @@ impl Render for AppView {
                 self.busy
                     && !show_setup
                     && !self.pull_modal_open
+                    && !self.exec_modal_open
                     && self.confirm.is_none(),
                 |root| root.child(self.render_busy_overlay(cx)),
             )

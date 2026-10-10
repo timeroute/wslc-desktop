@@ -14,6 +14,10 @@ pub struct EngineStatus {
     pub binary: String,
     pub version: String,
     pub message: String,
+    /// Session CPU count requested at start.
+    pub cpu_count: u32,
+    /// Session memory (MiB) requested at start.
+    pub memory_mb: u32,
 }
 
 impl EngineStatus {
@@ -23,6 +27,8 @@ impl EngineStatus {
             binary: "—".into(),
             version: String::new(),
             message: message.into(),
+            cpu_count: 0,
+            memory_mb: 0,
         }
     }
 }
@@ -47,9 +53,12 @@ pub struct PortMapping {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VolumeMapping {
+    /// Host path (bind) or session volume name (named).
     pub host: String,
     pub container: String,
     pub read_only: bool,
+    /// When true, `host` is a session VHD volume name.
+    pub named: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,4 +122,16 @@ pub enum SdkSetupEvent {
     Progress(f32),
     Log(String),
     Finished(Result<super::WslcClient, String>),
+}
+
+/// Snapshot used by Overview "simple stats".
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[allow(dead_code)]
+pub struct SessionStats {
+    pub cpu_count: u32,
+    pub memory_mb: u32,
+    pub containers: usize,
+    pub running: usize,
+    pub images: usize,
+    pub volumes: usize,
 }

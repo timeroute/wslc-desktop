@@ -80,6 +80,7 @@ impl super::AppView {
             || self.busy
             || self.pull_phase == PullPhase::Pulling
             || self.logs_modal_open
+            || self.exec_modal_open
             || self.confirm.is_some()
             || (self.create_modal_open && self.busy)
     }

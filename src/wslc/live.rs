@@ -8,9 +8,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{anyhow, Result};
 
 use super::catalog::{Catalog, PersistedContainer};
+use super::prefs::SessionPrefs;
 use super::{
     split_ref, BackendKind, ContainerInfo, CreateContainerRequest, EngineStatus, ImageInfo,
-    PortMapping, PullEvent, VolumeInfo, VolumeMapping,
+    PortMapping, PullEvent, SessionStats, VolumeInfo, VolumeMapping,
 };
 
 const SESSION_NAME: &str = "wslc-desktop";
@@ -19,6 +20,7 @@ const STOP_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub enum Cmd {
     Status(Sender<EngineStatus>),
+    Stats(Sender<SessionStats>),
     ListContainers {
         all: bool,
         reply: Sender<Result<Vec<ContainerInfo>>>,
@@ -37,6 +39,10 @@ pub enum Cmd {
         key: String,
         reply: Sender<Result<()>>,
     },
+    RestartContainer {
+        key: String,
+        reply: Sender<Result<()>>,
+    },
     RemoveContainer {
         key: String,
         reply: Sender<Result<()>>,
@@ -51,6 +57,7 @@ pub enum Cmd {
     },
     CreateVolume {
         name: String,
+        size_bytes: u64,
         reply: Sender<Result<()>>,
     },
     RemoveVolume {
@@ -63,6 +70,15 @@ pub enum Cmd {
     },
     ContainerLogs {
         key: String,
+        reply: Sender<Result<String>>,
+    },
+    ContainerInspect {
+        key: String,
+        reply: Sender<Result<String>>,
+    },
+    ContainerExec {
+        key: String,
+        command: String,
         reply: Sender<Result<String>>,
     },
     Shutdown,
@@ -239,10 +255,11 @@ fn format_volumes(volumes: &[VolumeMapping]) -> String {
     volumes
         .iter()
         .map(|v| {
+            let prefix = if v.named { "vol:" } else { "" };
             if v.read_only {
-                format!("{}:{}:ro", v.host, v.container)
+                format!("{prefix}{}:{}:ro", v.host, v.container)
             } else {
-                format!("{}:{}", v.host, v.container)
+                format!("{prefix}{}:{}", v.host, v.container)
             }
         })
         .collect::<Vec<_>>()
@@ -284,6 +301,7 @@ struct TrackedContainer {
 struct LiveState {
     session: wslc::Session,
     version: String,
+    prefs: SessionPrefs,
     containers: Vec<TrackedContainer>,
     volumes: Vec<VolumeInfo>,
 }
@@ -294,20 +312,23 @@ impl LiveState {
         let version = wslc::Service::version().map_err(|e| anyhow!("{e}"))?;
         let version = format!("{}.{}.{}", version.major, version.minor, version.revision);
 
+        let prefs = SessionPrefs::load().clamp();
+
         // Dedicated desktop session — not shared with the `wslc` CLI.
         let path = storage_path();
         std::fs::create_dir_all(&path)
             .map_err(|e| anyhow!("failed to create session storage {}: {e}", path.display()))?;
 
         let session = wslc::Session::builder(SESSION_NAME, path)
-            .cpu_count(2)
-            .memory_mb(2048)
+            .cpu_count(prefs.cpu_count)
+            .memory_mb(prefs.memory_mb)
             .start()
             .map_err(|e| anyhow!("{e}"))?;
 
         let mut state = Self {
             session,
             version,
+            prefs,
             containers: Vec::new(),
             volumes: Vec::new(),
         };
@@ -378,6 +399,30 @@ impl LiveState {
             binary: "wslcsdk".into(),
             version: self.version.clone(),
             message: format!("Connected via WSL Containers SDK {}", self.version),
+            cpu_count: self.prefs.cpu_count,
+            memory_mb: self.prefs.memory_mb,
+        }
+    }
+
+    fn stats(&self) -> SessionStats {
+        let running = self
+            .containers
+            .iter()
+            .filter(|c| {
+                matches!(
+                    c.handle.state(),
+                    Ok(wslc::ContainerState::Running)
+                )
+            })
+            .count();
+        let images = self.session.list_images().map(|v| v.len()).unwrap_or(0);
+        SessionStats {
+            cpu_count: self.prefs.cpu_count,
+            memory_mb: self.prefs.memory_mb,
+            containers: self.containers.len(),
+            running,
+            images,
+            volumes: self.volumes.len(),
         }
     }
 
@@ -481,6 +526,59 @@ impl LiveState {
             .map_err(|e| anyhow!("{e}"))
     }
 
+    fn restart_container(&mut self, key: &str) -> Result<()> {
+        {
+            let c = self.find_container_mut(key)?;
+            let _ = c.handle.stop(wslc::Signal::Sigterm, STOP_TIMEOUT);
+        }
+        let c = self.find_container_mut(key)?;
+        c.handle.start().map_err(|e| anyhow!("{e}"))
+    }
+
+    fn container_inspect(&self, key: &str) -> Result<String> {
+        let tracked = self.find_container(key)?;
+        let raw = tracked.handle.inspect().map_err(|e| anyhow!("{e}"))?;
+        if let Ok(pretty) = serde_json::from_str::<serde_json::Value>(&raw) {
+            Ok(serde_json::to_string_pretty(&pretty).unwrap_or(raw))
+        } else {
+            Ok(raw)
+        }
+    }
+
+    fn container_exec(&self, key: &str, command: &str) -> Result<String> {
+        let tracked = self.find_container(key)?;
+        let cmd = command.trim();
+        if cmd.is_empty() {
+            return Err(anyhow!("command is empty"));
+        }
+        let args = split_command_line(cmd);
+        if args.is_empty() {
+            return Err(anyhow!("command is empty"));
+        }
+        let proc = tracked
+            .handle
+            .exec(
+                wslc::ProcessOptions::new(args)
+                    .capture_stdout()
+                    .capture_stderr(),
+            )
+            .map_err(|e| anyhow!("{e}"))?;
+        let out = proc.wait_with_output().map_err(|e| anyhow!("{e}"))?;
+        let mut body = String::from_utf8_lossy(&out.stdout).into_owned();
+        let err = String::from_utf8_lossy(&out.stderr);
+        if !err.trim().is_empty() {
+            if !body.is_empty() {
+                body.push('\n');
+            }
+            body.push_str(&err);
+        }
+        if body.trim().is_empty() {
+            Ok(format!("(exit {})", out.status))
+        } else {
+            Ok(body)
+        }
+    }
+
     fn remove_container(&mut self, key: &str) -> Result<()> {
         let idx = self
             .containers
@@ -531,11 +629,19 @@ impl LiveState {
             builder = builder.port(port.host, port.container);
         }
         for vol in &request.volumes {
-            let host = PathBuf::from(&vol.host);
-            builder = if vol.read_only {
-                builder.volume_read_only(host, vol.container.clone())
+            builder = if vol.named {
+                if vol.read_only {
+                    builder.named_volume_read_only(vol.host.clone(), vol.container.clone())
+                } else {
+                    builder.named_volume(vol.host.clone(), vol.container.clone())
+                }
             } else {
-                builder.volume(host, vol.container.clone())
+                let host = PathBuf::from(&vol.host);
+                if vol.read_only {
+                    builder.volume_read_only(host, vol.container.clone())
+                } else {
+                    builder.volume(host, vol.container.clone())
+                }
             };
         }
 
@@ -583,7 +689,7 @@ impl LiveState {
         Ok(name)
     }
 
-    fn create_volume(&mut self, name: &str) -> Result<()> {
+    fn create_volume(&mut self, name: &str, size_bytes: u64) -> Result<()> {
         let name = name.trim();
         if name.is_empty() {
             return Err(anyhow!("volume name is empty"));
@@ -591,9 +697,14 @@ impl LiveState {
         if self.volumes.iter().any(|v| v.name == name) {
             return Err(anyhow!("volume already exists: {name}"));
         }
+        let size_bytes = if size_bytes == 0 {
+            DEFAULT_VOLUME_BYTES
+        } else {
+            size_bytes.max(64 * 1024 * 1024)
+        };
         self.session
             .create_vhd_volume(
-                wslc::VhdOptions::new(name, DEFAULT_VOLUME_BYTES).vhd_type(wslc::VhdType::Dynamic),
+                wslc::VhdOptions::new(name, size_bytes).vhd_type(wslc::VhdType::Dynamic),
             )
             .map_err(|e| anyhow!("{e}"))?;
         self.volumes.insert(
@@ -603,7 +714,7 @@ impl LiveState {
                 driver: "vhd".into(),
                 mountpoint: format!("session:{name}"),
                 created: "Just now".into(),
-                size: format_bytes(DEFAULT_VOLUME_BYTES as i64),
+                size: format_bytes(size_bytes as i64),
             },
         );
         let _ = self.persist_catalog();
@@ -851,6 +962,9 @@ fn live_worker(mut state: LiveState, rx: mpsc::Receiver<Cmd>) {
             Cmd::Status(reply) => {
                 let _ = reply.send(state.status());
             }
+            Cmd::Stats(reply) => {
+                let _ = reply.send(state.stats());
+            }
             Cmd::ListContainers { all, reply } => {
                 let _ = reply.send(state.list_containers(all));
             }
@@ -866,6 +980,9 @@ fn live_worker(mut state: LiveState, rx: mpsc::Receiver<Cmd>) {
             Cmd::StopContainer { key, reply } => {
                 let _ = reply.send(state.stop_container(&key));
             }
+            Cmd::RestartContainer { key, reply } => {
+                let _ = reply.send(state.restart_container(&key));
+            }
             Cmd::RemoveContainer { key, reply } => {
                 let _ = reply.send(state.remove_container(&key));
             }
@@ -875,8 +992,12 @@ fn live_worker(mut state: LiveState, rx: mpsc::Receiver<Cmd>) {
             Cmd::CreateContainer { request, reply } => {
                 let _ = reply.send(state.create_container(request));
             }
-            Cmd::CreateVolume { name, reply } => {
-                let _ = reply.send(state.create_volume(&name));
+            Cmd::CreateVolume {
+                name,
+                size_bytes,
+                reply,
+            } => {
+                let _ = reply.send(state.create_volume(&name, size_bytes));
             }
             Cmd::RemoveVolume { name, reply } => {
                 let _ = reply.send(state.remove_volume(&name));
@@ -886,6 +1007,16 @@ fn live_worker(mut state: LiveState, rx: mpsc::Receiver<Cmd>) {
             }
             Cmd::ContainerLogs { key, reply } => {
                 let _ = reply.send(state.container_logs(&key));
+            }
+            Cmd::ContainerInspect { key, reply } => {
+                let _ = reply.send(state.container_inspect(&key));
+            }
+            Cmd::ContainerExec {
+                key,
+                command,
+                reply,
+            } => {
+                let _ = reply.send(state.container_exec(&key, &command));
             }
             Cmd::Shutdown => break,
         }

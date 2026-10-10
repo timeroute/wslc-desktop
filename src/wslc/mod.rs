@@ -12,6 +12,7 @@ use anyhow::{anyhow, Result};
 mod catalog;
 #[cfg(windows)]
 mod live;
+mod prefs;
 #[cfg(windows)]
 mod sdk_fetch;
 mod sdk_version;
@@ -19,6 +20,7 @@ mod sdk_version;
 mod syspath;
 mod types;
 
+pub use prefs::SessionPrefs;
 pub use types::*;
 
 pub(super) fn split_ref(reference: &str) -> (String, String) {
@@ -241,6 +243,18 @@ impl WslcClient {
         }
     }
 
+    pub fn restart_container(&self, name_or_id: &str) -> Result<()> {
+        match &self.inner.backend {
+            #[cfg(windows)]
+            Backend::Live { tx, .. } => live::call(tx, |reply| live::Cmd::RestartContainer {
+                key: name_or_id.to_string(),
+                reply,
+            }),
+            #[cfg(not(windows))]
+            Backend::Unsupported => Err(anyhow!("WSL Containers SDK unavailable")),
+        }
+    }
+
     pub fn remove_container(&self, name_or_id: &str) -> Result<()> {
         match &self.inner.backend {
             #[cfg(windows)]
@@ -292,6 +306,50 @@ impl WslcClient {
         }
     }
 
+    pub fn container_inspect(&self, name_or_id: &str) -> Result<String> {
+        match &self.inner.backend {
+            #[cfg(windows)]
+            Backend::Live { tx, .. } => live::call(tx, |reply| live::Cmd::ContainerInspect {
+                key: name_or_id.to_string(),
+                reply,
+            }),
+            #[cfg(not(windows))]
+            Backend::Unsupported => Err(anyhow!("WSL Containers SDK unavailable")),
+        }
+    }
+
+    pub fn container_exec(&self, name_or_id: &str, command: &str) -> Result<String> {
+        match &self.inner.backend {
+            #[cfg(windows)]
+            Backend::Live { tx, .. } => live::call(tx, |reply| live::Cmd::ContainerExec {
+                key: name_or_id.to_string(),
+                command: command.to_string(),
+                reply,
+            }),
+            #[cfg(not(windows))]
+            Backend::Unsupported => Err(anyhow!("WSL Containers SDK unavailable")),
+        }
+    }
+
+    #[cfg_attr(not(windows), allow(dead_code))]
+    #[allow(dead_code)] // reserved for richer Overview refresh
+    pub fn session_stats(&self) -> SessionStats {
+        match &self.inner.backend {
+            #[cfg(windows)]
+            Backend::Live { tx, .. } => {
+                let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+                if tx.send(live::Cmd::Stats(reply_tx)).is_ok() {
+                    if let Ok(stats) = reply_rx.recv() {
+                        return stats;
+                    }
+                }
+                SessionStats::default()
+            }
+            #[cfg(not(windows))]
+            Backend::Unsupported => SessionStats::default(),
+        }
+    }
+
     pub fn list_volumes(&self) -> Result<Vec<VolumeInfo>> {
         match &self.inner.backend {
             #[cfg(windows)]
@@ -301,7 +359,7 @@ impl WslcClient {
         }
     }
 
-    pub fn create_volume(&self, name: &str) -> Result<()> {
+    pub fn create_volume(&self, name: &str, size_bytes: u64) -> Result<()> {
         let name = name.trim();
         if name.is_empty() {
             return Err(anyhow!("volume name is empty"));
@@ -311,11 +369,20 @@ impl WslcClient {
             #[cfg(windows)]
             Backend::Live { tx, .. } => live::call(tx, |reply| live::Cmd::CreateVolume {
                 name: name.to_string(),
+                size_bytes,
                 reply,
             }),
             #[cfg(not(windows))]
             Backend::Unsupported => Err(anyhow!("WSL Containers SDK unavailable")),
         }
+    }
+
+    pub fn save_session_prefs(prefs: SessionPrefs) -> Result<()> {
+        prefs.clamp().save().map_err(|e| anyhow!("{e}"))
+    }
+
+    pub fn load_session_prefs() -> SessionPrefs {
+        SessionPrefs::load().clamp()
     }
 
     pub fn remove_volume(&self, name: &str) -> Result<()> {

@@ -36,11 +36,17 @@ impl AppView {
         self.bind_mounts_input.update(cx, |state, cx| {
             state.set_placeholder(t.bind_mounts_placeholder, window, cx);
         });
+        self.named_volumes_input.update(cx, |state, cx| {
+            state.set_placeholder(t.named_volumes_placeholder, window, cx);
+        });
         self.command_input.update(cx, |state, cx| {
             state.set_placeholder(t.command_placeholder, window, cx);
         });
         self.volume_input.update(cx, |state, cx| {
             state.set_placeholder(t.volume_placeholder, window, cx);
+        });
+        self.exec_input.update(cx, |state, cx| {
+            state.set_placeholder(t.container_exec_placeholder, window, cx);
         });
         if self.pull_phase == PullPhase::Idle {
             self.pull_status = t.pull_hint.into();

@@ -6,7 +6,7 @@ use gpui_kit::component::{
     input::Input,
     v_flex,
 };
-use gpui_kit::prelude::InteractiveElement as _;
+use gpui_kit::prelude::{FluentBuilder as _, InteractiveElement as _};
 use gpui_kit::*;
 
 use crate::i18n::{self};
@@ -14,6 +14,8 @@ use crate::wslc::VolumeInfo;
 
 use super::state::ConfirmAction;
 use super::AppView;
+
+const VOLUME_SIZES_GIB: [u32; 4] = [1, 2, 5, 10];
 
 impl AppView {
     pub(crate) fn render_volume_row(
@@ -95,6 +97,7 @@ impl AppView {
 
     pub(crate) fn render_volumes(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = self.t();
+        let size_gib = self.volume_size_gib;
         v_flex()
             .size_full()
             .gap_3()
@@ -112,9 +115,10 @@ impl AppView {
                             .disabled(self.ops_disabled())
                             .on_click(cx.listener(|this, _, _, cx| {
                                 let name = this.volume_input.read(cx).value().to_string();
+                                let size_bytes = u64::from(this.volume_size_gib) * 1024 * 1024 * 1024;
                                 let template = this.t().created_volume;
                                 this.with_busy(cx, move |client| {
-                                    client.create_volume(&name)?;
+                                    client.create_volume(&name, size_bytes)?;
                                     Ok(i18n::fmt1(template, "name", &name))
                                 });
                             })),
@@ -137,6 +141,30 @@ impl AppView {
                                 );
                             })),
                     ),
+            )
+            .child(
+                h_flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(t.volume_size_label),
+                    )
+                    .children(VOLUME_SIZES_GIB.into_iter().map(|gib| {
+                        let selected = size_gib == gib;
+                        Button::new(("volume-size", gib as usize))
+                            .small()
+                            .label(format!("{gib} GiB"))
+                            .when(selected, |b| b.primary())
+                            .disabled(self.ops_disabled())
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.volume_size_gib = gib;
+                                cx.notify();
+                            }))
+                            .into_any_element()
+                    })),
             )
             .child(
                 div()

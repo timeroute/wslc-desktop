@@ -80,6 +80,26 @@ impl AppView {
                                 &self.status.binary,
                                 None,
                                 cx,
+                            ))
+                            .child(self.overview_row(
+                                t.overview_cpu,
+                                if self.status.cpu_count == 0 {
+                                    t.overview_na.to_string()
+                                } else {
+                                    self.status.cpu_count.to_string()
+                                },
+                                None,
+                                cx,
+                            ))
+                            .child(self.overview_row(
+                                t.overview_memory,
+                                if self.status.memory_mb == 0 {
+                                    t.overview_na.to_string()
+                                } else {
+                                    format!("{} MiB", self.status.memory_mb)
+                                },
+                                None,
+                                cx,
                             )),
                     ))
                     .child(self.overview_card(

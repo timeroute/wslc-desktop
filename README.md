@@ -7,11 +7,11 @@
 ## 功能
 
 - **总览（默认）**：引擎 / SDK / 应用版本、会话信息、容器·镜像·卷摘要
-- **Containers**：创建容器弹窗（镜像、名称、端口映射、卷映射、退出后删除、额外命令）；列表展示状态 / 端口 / 卷 / auto-remove；Start / Stop / Remove（确认）/ 运行日志弹窗；退出应用后通过本地 catalog + `OpenContainer` 恢复
-- **Images**：拉取镜像弹窗（进度 + 日志，拉取时锁定 UI）；列表；从此创建容器或删除（确认）
-- **Volumes**：创建 / 删除会话 VHD 卷（默认 1 GiB 动态盘；catalog 持久化 + 确认删除）
+- **Containers**：创建（端口 / bind / 命名卷 / 命令）；Start / Stop / Restart / Logs / Inspect / Exec / Remove（确认）；catalog + `OpenContainer` 跨重启恢复
+- **Images**：拉取镜像弹窗（进度 + 日志）；列表；从此创建或删除（确认）
+- **Volumes**：可选容量（1/2/5/10 GiB）创建 VHD；catalog 持久化 + 确认删除；创建容器时可挂命名卷
 - **引擎状态**：LIVE（独立 `wslc-desktop` 会话）；未就绪时全屏 SDK 安装弹窗（OFF）
-- **设置**：TitleBar 齿轮；界面语言（中文 / English）与主题（深色 / 浅色）
+- **设置**：语言 / 主题 / 会话 CPU·内存（写入 prefs，下次新建会话生效）
 
 ## 环境要求
 
