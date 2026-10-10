@@ -18,10 +18,12 @@ use smol::Timer;
 
 use crate::i18n::{self, Locale, Strings};
 use crate::wslc::{
-    BackendKind, ContainerInfo, EngineStatus, ImageInfo, PullEvent, VolumeInfo, WslcClient,
+    BackendKind, ContainerInfo, EngineStatus, ImageInfo, PullEvent, SdkSetupEvent, VolumeInfo,
+    WslcClient,
 };
 
 const MAX_PULL_LOG_LINES: usize = 400;
+const MAX_SDK_LOG_LINES: usize = 500;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Section {
@@ -65,8 +67,23 @@ impl PullPhase {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SdkSetupPhase {
+    Running,
+    Failed,
+}
+
+impl SdkSetupPhase {
+    fn label(self, t: &Strings) -> &'static str {
+        match self {
+            Self::Running => t.sdk_setup_phase_running,
+            Self::Failed => t.sdk_setup_phase_failed,
+        }
+    }
+}
+
 pub struct AppView {
-    client: WslcClient,
+    client: Option<WslcClient>,
     status: EngineStatus,
     section: Section,
     locale: Locale,
@@ -90,6 +107,13 @@ pub struct AppView {
     pull_logs: Vec<SharedString>,
     pull_rx: Option<Receiver<PullEvent>>,
     pull_poll_generation: u64,
+    /// `Some` while the blocking SDK setup dialog must stay up.
+    sdk_setup_phase: Option<SdkSetupPhase>,
+    sdk_setup_status: SharedString,
+    sdk_setup_progress: f32,
+    sdk_setup_logs: Vec<SharedString>,
+    sdk_setup_rx: Option<Receiver<SdkSetupEvent>>,
+    sdk_setup_poll_generation: u64,
 }
 
 impl AppView {
@@ -114,15 +138,9 @@ impl AppView {
         let volume_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(t.volume_placeholder));
 
-        let client = WslcClient::detect();
         let mut view = Self {
-            client,
-            status: EngineStatus {
-                backend: BackendKind::Demo,
-                binary: String::new(),
-                version: String::new(),
-                message: String::new(),
-            },
+            client: None,
+            status: EngineStatus::unavailable(t.sdk_locked),
             section: Section::Containers,
             locale,
             theme_mode: ThemeMode::Dark,
@@ -134,7 +152,7 @@ impl AppView {
             selected_volume: None,
             show_all_containers: true,
             busy: false,
-            status_line: t.ready.into(),
+            status_line: t.sdk_locked.into(),
             image_input,
             name_input,
             pull_input,
@@ -145,9 +163,23 @@ impl AppView {
             pull_logs: Vec::new(),
             pull_rx: None,
             pull_poll_generation: 0,
+            sdk_setup_phase: None,
+            sdk_setup_status: t.sdk_setup_installing.into(),
+            sdk_setup_progress: 0.0,
+            sdk_setup_logs: Vec::new(),
+            sdk_setup_rx: None,
+            sdk_setup_poll_generation: 0,
         };
-        view.refresh(cx);
+        view.begin_sdk_setup(false, cx);
         view
+    }
+
+    fn sdk_locked(&self) -> bool {
+        self.sdk_setup_phase.is_some() || self.client.is_none()
+    }
+
+    fn ops_disabled(&self) -> bool {
+        self.sdk_locked() || self.busy || self.pull_phase == PullPhase::Pulling
     }
 
     fn t(&self) -> &'static Strings {
@@ -176,118 +208,12 @@ impl AppView {
         }
         // Relocalize in-memory status only — do not re-probe the SDK.
         self.status.message = self.localize_engine_message(&self.status);
-        let mode = match self.status.backend {
-            BackendKind::Live => t.mode_live,
-            BackendKind::Demo => t.mode_demo,
-        };
-        self.status_line = i18n::fmt4(
-            t.refreshed_summary,
-            "containers",
-            self.containers.len().to_string(),
-            "images",
-            self.images.len().to_string(),
-            "volumes",
-            self.volumes.len().to_string(),
-            "mode",
-            mode,
-        )
-        .into();
-        cx.notify();
-    }
-
-    fn apply_theme(&mut self, mode: ThemeMode, window: &mut Window, cx: &mut Context<Self>) {
-        if self.theme_mode == mode {
-            return;
-        }
-        self.theme_mode = mode;
-        Theme::change(mode, Some(window), cx);
-        cx.notify();
-    }
-
-    fn localize_engine_message(&self, status: &EngineStatus) -> String {
-        let t = self.t();
-        match status.backend {
-            BackendKind::Live => i18n::fmt1(t.engine_connected, "bin", &status.version),
-            BackendKind::Demo => {
-                let detail = status
-                    .message
-                    .strip_prefix("SDK unavailable (")
-                    .and_then(|rest| rest.strip_suffix("); using demo data"))
-                    .or_else(|| {
-                        status
-                            .message
-                            .strip_prefix("WSL Containers SDK not found")
-                            .map(|_| "")
-                    })
-                    .unwrap_or(status.message.as_str());
-                let lower = detail.to_ascii_lowercase();
-                if lower.contains("sdk_needs_update") {
-                    t.engine_sdk_outdated.to_string()
-                } else if lower.contains("missing wsl components")
-                    || lower.contains("virtual_machine_platform")
-                    || lower.contains("wsl_package")
-                {
-                    i18n::fmt1(t.engine_missing_components, "err", detail)
-                } else if detail.is_empty()
-                    || lower.contains("sdk not found")
-                    || lower.contains("wslcsdk.dll")
-                {
-                    t.engine_missing.to_string()
-                } else {
-                    i18n::fmt1(t.engine_unusable, "err", detail)
-                }
-            }
-        }
-    }
-
-    fn refresh(&mut self, cx: &mut Context<Self>) {
-        let t = self.t();
-        self.status = self.client.status();
-        self.status.message = self.localize_engine_message(&self.status);
-        let mut ok = true;
-        match self.client.list_containers(self.show_all_containers) {
-            Ok(rows) => {
-                self.containers = rows;
-                if self
-                    .selected_container
-                    .is_some_and(|i| i >= self.containers.len())
-                {
-                    self.selected_container = None;
-                }
-            }
-            Err(err) => {
-                ok = false;
-                self.status_line = i18n::fmt1(t.list_containers_failed, "err", err.to_string()).into();
-            }
-        }
-        match self.client.list_images() {
-            Ok(rows) => {
-                self.images = rows;
-                if self.selected_image.is_some_and(|i| i >= self.images.len()) {
-                    self.selected_image = None;
-                }
-            }
-            Err(err) => {
-                ok = false;
-                self.status_line = i18n::fmt1(t.list_images_failed, "err", err.to_string()).into();
-            }
-        }
-        match self.client.list_volumes() {
-            Ok(rows) => {
-                self.volumes = rows;
-                if self.selected_volume.is_some_and(|i| i >= self.volumes.len()) {
-                    self.selected_volume = None;
-                }
-            }
-            Err(err) => {
-                ok = false;
-                self.status_line = i18n::fmt1(t.list_volumes_failed, "err", err.to_string()).into();
-            }
-        }
-        if ok {
+        if self.sdk_locked() {
+            self.status_line = t.sdk_locked.into();
+        } else {
             let mode = match self.status.backend {
                 BackendKind::Live => t.mode_live,
-                BackendKind::Demo => t.mode_demo,
+                BackendKind::Unavailable => t.mode_unavailable,
             };
             self.status_line = i18n::fmt4(
                 t.refreshed_summary,
@@ -305,17 +231,149 @@ impl AppView {
         cx.notify();
     }
 
+    fn apply_theme(&mut self, mode: ThemeMode, window: &mut Window, cx: &mut Context<Self>) {
+        if self.theme_mode == mode {
+            return;
+        }
+        self.theme_mode = mode;
+        Theme::change(mode, Some(window), cx);
+        cx.notify();
+    }
+
+    fn localize_engine_message(&self, status: &EngineStatus) -> String {
+        let t = self.t();
+        match status.backend {
+            BackendKind::Live => i18n::fmt1(t.engine_connected, "bin", &status.version),
+            BackendKind::Unavailable => {
+                let detail = status.message.as_str();
+                let lower = detail.to_ascii_lowercase();
+                if lower.contains("sdk_needs_update") {
+                    t.engine_sdk_outdated.to_string()
+                } else if lower.contains("missing wsl components")
+                    || lower.contains("virtual_machine_platform")
+                    || lower.contains("wsl_package")
+                {
+                    i18n::fmt1(t.engine_missing_components, "err", detail)
+                } else if detail.is_empty()
+                    || lower.contains("sdk not found")
+                    || lower.contains("wslcsdk.dll")
+                    || lower.contains("sdk install failed")
+                {
+                    if detail.is_empty() || lower.contains("wslcsdk.dll") || lower.contains("sdk not found")
+                    {
+                        t.engine_missing.to_string()
+                    } else {
+                        i18n::fmt1(t.engine_unusable, "err", detail)
+                    }
+                } else {
+                    i18n::fmt1(t.engine_unusable, "err", detail)
+                }
+            }
+        }
+    }
+
+    fn refresh(&mut self, cx: &mut Context<Self>) {
+        let t = self.t();
+        let Some(client) = self.client.clone() else {
+            self.status = EngineStatus::unavailable(t.sdk_locked);
+            self.status.message = self.localize_engine_message(&self.status);
+            self.status_line = t.sdk_locked.into();
+            cx.notify();
+            return;
+        };
+
+        self.status = client.status();
+        self.status.message = self.localize_engine_message(&self.status);
+
+        // Live session dropped — lock the UI and force SDK setup again.
+        if self.status.backend != BackendKind::Live {
+            self.client = None;
+            self.containers.clear();
+            self.images.clear();
+            self.volumes.clear();
+            self.selected_container = None;
+            self.selected_image = None;
+            self.selected_volume = None;
+            self.status_line = t.sdk_locked.into();
+            if self.sdk_setup_phase.is_none() {
+                self.begin_sdk_setup(false, cx);
+            } else {
+                cx.notify();
+            }
+            return;
+        }
+
+        let mut ok = true;
+        match client.list_containers(self.show_all_containers) {
+            Ok(rows) => {
+                self.containers = rows;
+                if self
+                    .selected_container
+                    .is_some_and(|i| i >= self.containers.len())
+                {
+                    self.selected_container = None;
+                }
+            }
+            Err(err) => {
+                ok = false;
+                self.status_line = i18n::fmt1(t.list_containers_failed, "err", err.to_string()).into();
+            }
+        }
+        match client.list_images() {
+            Ok(rows) => {
+                self.images = rows;
+                if self.selected_image.is_some_and(|i| i >= self.images.len()) {
+                    self.selected_image = None;
+                }
+            }
+            Err(err) => {
+                ok = false;
+                self.status_line = i18n::fmt1(t.list_images_failed, "err", err.to_string()).into();
+            }
+        }
+        match client.list_volumes() {
+            Ok(rows) => {
+                self.volumes = rows;
+                if self.selected_volume.is_some_and(|i| i >= self.volumes.len()) {
+                    self.selected_volume = None;
+                }
+            }
+            Err(err) => {
+                ok = false;
+                self.status_line = i18n::fmt1(t.list_volumes_failed, "err", err.to_string()).into();
+            }
+        }
+        if ok {
+            self.status_line = i18n::fmt4(
+                t.refreshed_summary,
+                "containers",
+                self.containers.len().to_string(),
+                "images",
+                self.images.len().to_string(),
+                "volumes",
+                self.volumes.len().to_string(),
+                "mode",
+                t.mode_live,
+            )
+            .into();
+        }
+        cx.notify();
+    }
+
     fn with_busy(
         &mut self,
         cx: &mut Context<Self>,
         op: impl FnOnce(&WslcClient) -> anyhow::Result<String>,
     ) {
-        if self.busy || self.pull_phase == PullPhase::Pulling {
+        if self.sdk_locked() || self.busy || self.pull_phase == PullPhase::Pulling {
             return;
         }
+        let Some(client) = self.client.clone() else {
+            return;
+        };
         self.busy = true;
         cx.notify();
-        match op(&self.client) {
+        match op(&client) {
             Ok(msg) => {
                 self.busy = false;
                 self.set_status(msg, cx);
@@ -329,6 +387,131 @@ impl AppView {
         }
     }
 
+    fn append_sdk_log(&mut self, line: impl Into<SharedString>) {
+        self.sdk_setup_logs.push(line.into());
+        if self.sdk_setup_logs.len() > MAX_SDK_LOG_LINES {
+            let drop = self.sdk_setup_logs.len() - MAX_SDK_LOG_LINES;
+            self.sdk_setup_logs.drain(0..drop);
+        }
+    }
+
+    fn begin_sdk_setup(&mut self, force_redownload: bool, cx: &mut Context<Self>) {
+        if self.sdk_setup_phase == Some(SdkSetupPhase::Running) {
+            return;
+        }
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        WslcClient::start_setup(force_redownload, tx);
+        self.client = None;
+        self.sdk_setup_rx = Some(rx);
+        self.sdk_setup_phase = Some(SdkSetupPhase::Running);
+        self.sdk_setup_progress = 0.0;
+        self.sdk_setup_status = self.t().sdk_setup_installing.into();
+        self.sdk_setup_logs.clear();
+        self.append_sdk_log(if force_redownload {
+            "Retry: reinstalling WSL Containers SDK…"
+        } else {
+            "Starting WSL Containers SDK setup…"
+        });
+        self.status = EngineStatus::unavailable(self.t().sdk_locked);
+        self.status_line = self.t().sdk_locked.into();
+        self.sdk_setup_poll_generation = self.sdk_setup_poll_generation.wrapping_add(1);
+        let generation = self.sdk_setup_poll_generation;
+        cx.notify();
+
+        cx.spawn(async move |this, cx| {
+            loop {
+                Timer::after(Duration::from_millis(80)).await;
+                let cont = this
+                    .update(cx, |this, cx| {
+                        if this.sdk_setup_poll_generation != generation {
+                            return false;
+                        }
+                        this.poll_sdk_setup(cx)
+                    })
+                    .unwrap_or(false);
+                if !cont {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// Returns `true` while setup is still running.
+    fn poll_sdk_setup(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(rx) = self.sdk_setup_rx.take() else {
+            return false;
+        };
+
+        let mut events = Vec::new();
+        let mut disconnected = false;
+        loop {
+            match rx.try_recv() {
+                Ok(event) => events.push(event),
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    disconnected = true;
+                    break;
+                }
+            }
+        }
+
+        let mut finished = disconnected;
+        for event in events {
+            match event {
+                SdkSetupEvent::Status(status) => {
+                    self.sdk_setup_status = status.into();
+                }
+                SdkSetupEvent::Progress(value) => {
+                    self.sdk_setup_progress = value.clamp(0.0, 100.0);
+                }
+                SdkSetupEvent::Log(line) => {
+                    self.append_sdk_log(line);
+                }
+                SdkSetupEvent::Finished(result) => {
+                    finished = true;
+                    match result {
+                        Ok(client) => {
+                            self.client = Some(client);
+                            self.sdk_setup_phase = None;
+                            self.sdk_setup_progress = 100.0;
+                            self.sdk_setup_status = self.t().ready.into();
+                            self.append_sdk_log("✓ SDK connected");
+                            self.refresh(cx);
+                        }
+                        Err(err) => {
+                            self.client = None;
+                            self.sdk_setup_phase = Some(SdkSetupPhase::Failed);
+                            self.status = EngineStatus::unavailable(err.clone());
+                            self.status.message = self.localize_engine_message(&self.status);
+                            let msg = i18n::fmt1(self.t().engine_unusable, "err", &err);
+                            self.sdk_setup_status = self.t().sdk_setup_failed.into();
+                            self.append_sdk_log(format!("✗ {err}"));
+                            self.status_line = msg.into();
+                        }
+                    }
+                }
+            }
+        }
+
+        if disconnected && self.sdk_setup_phase == Some(SdkSetupPhase::Running) {
+            self.sdk_setup_phase = Some(SdkSetupPhase::Failed);
+            self.sdk_setup_status = self.t().sdk_setup_channel_disconnected.into();
+            self.append_sdk_log(self.t().sdk_setup_channel_disconnected);
+            self.status = EngineStatus::unavailable(self.t().sdk_setup_channel_disconnected);
+            finished = true;
+        }
+
+        if finished {
+            self.sdk_setup_rx = None;
+        } else {
+            self.sdk_setup_rx = Some(rx);
+        }
+        cx.notify();
+        self.sdk_setup_phase == Some(SdkSetupPhase::Running)
+    }
+
     fn append_pull_log(&mut self, line: impl Into<SharedString>) {
         self.pull_logs.push(line.into());
         if self.pull_logs.len() > MAX_PULL_LOG_LINES {
@@ -338,7 +521,7 @@ impl AppView {
     }
 
     fn begin_pull(&mut self, reference: String, cx: &mut Context<Self>) {
-        if self.pull_phase == PullPhase::Pulling {
+        if self.sdk_locked() || self.pull_phase == PullPhase::Pulling {
             return;
         }
         let reference = reference.trim().to_string();
@@ -346,9 +529,12 @@ impl AppView {
             self.set_status(self.t().image_ref_empty, cx);
             return;
         }
+        let Some(client) = self.client.clone() else {
+            return;
+        };
 
         let (tx, rx) = std::sync::mpsc::channel();
-        self.client.start_pull(&reference, tx);
+        client.start_pull(&reference, tx);
         self.pull_rx = Some(rx);
         self.pull_phase = PullPhase::Pulling;
         self.pull_progress = 0.0;
@@ -466,7 +652,7 @@ impl AppView {
     fn render_engine_badge(&self, cx: &Context<Self>) -> impl IntoElement {
         let (label, color) = match self.status.backend {
             BackendKind::Live => ("LIVE", cx.theme().green),
-            BackendKind::Demo => ("DEMO", cx.theme().yellow),
+            BackendKind::Unavailable => ("OFF", cx.theme().red),
         };
 
         h_flex()
@@ -658,7 +844,7 @@ impl AppView {
                             Button::new("refresh")
                                 .label(if self.busy { t.working } else { t.refresh })
                                 .icon(IconName::RefreshCw)
-                                .disabled(self.busy || self.pull_phase == PullPhase::Pulling)
+                                .disabled(self.ops_disabled())
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.set_status(this.t().refreshing, cx);
                                     this.refresh(cx);
@@ -797,8 +983,7 @@ impl AppView {
                                     .primary()
                                     .label(t.start)
                                     .disabled(
-                                        self.busy
-                                            || self.pull_phase == PullPhase::Pulling
+                                        self.ops_disabled()
                                             || self
                                                 .selected_container()
                                                 .is_none_or(|c| c.is_running()),
@@ -824,8 +1009,7 @@ impl AppView {
                                     .small()
                                     .label(t.stop)
                                     .disabled(
-                                        self.busy
-                                            || self.pull_phase == PullPhase::Pulling
+                                        self.ops_disabled()
                                             || self
                                                 .selected_container()
                                                 .is_none_or(|c| !c.is_running()),
@@ -852,9 +1036,7 @@ impl AppView {
                                     .danger()
                                     .label(t.remove)
                                     .disabled(
-                                        self.busy
-                                            || self.pull_phase == PullPhase::Pulling
-                                            || self.selected_container().is_none(),
+                                        self.ops_disabled() || self.selected_container().is_none(),
                                     )
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         let Some(c) = this.selected_container().cloned() else {
@@ -1001,7 +1183,7 @@ impl AppView {
                             .primary()
                             .label(if pulling { t.pulling } else { t.pull })
                             .icon(IconName::ArrowDown)
-                            .disabled(pulling || self.busy)
+                            .disabled(self.ops_disabled())
                             .on_click(cx.listener(|this, _, _, cx| {
                                 let reference = this.pull_input.read(cx).value().to_string();
                                 this.begin_pull(reference, cx);
@@ -1093,9 +1275,7 @@ impl AppView {
                                     .primary()
                                     .label(t.run)
                                     .disabled(
-                                        self.busy
-                                            || self.pull_phase == PullPhase::Pulling
-                                            || self.selected_image().is_none(),
+                                        self.ops_disabled() || self.selected_image().is_none(),
                                     )
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         let Some(img) = this.selected_image().cloned() else {
@@ -1115,9 +1295,7 @@ impl AppView {
                                     .danger()
                                     .label(t.remove)
                                     .disabled(
-                                        self.busy
-                                            || self.pull_phase == PullPhase::Pulling
-                                            || self.selected_image().is_none(),
+                                        self.ops_disabled() || self.selected_image().is_none(),
                                     )
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         let Some(img) = this.selected_image().cloned() else {
@@ -1253,7 +1431,7 @@ impl AppView {
                             .primary()
                             .label(t.create)
                             .icon(IconName::Plus)
-                            .disabled(self.busy || self.pull_phase == PullPhase::Pulling)
+                            .disabled(self.ops_disabled())
                             .on_click(cx.listener(|this, _, _, cx| {
                                 let name = this.volume_input.read(cx).value().to_string();
                                 let template = this.t().created_volume;
@@ -1268,9 +1446,7 @@ impl AppView {
                             .danger()
                             .label(t.remove)
                             .disabled(
-                                self.busy
-                                    || self.pull_phase == PullPhase::Pulling
-                                    || self.selected_volume().is_none(),
+                                self.ops_disabled() || self.selected_volume().is_none(),
                             )
                             .on_click(cx.listener(|this, _, _, cx| {
                                 let Some(vol) = this.selected_volume().cloned() else {
@@ -1353,7 +1529,7 @@ impl AppView {
                         .primary()
                         .label(t.run_detached)
                         .icon(IconName::Play)
-                        .disabled(self.busy || self.pull_phase == PullPhase::Pulling)
+                        .disabled(self.ops_disabled())
                         .on_click(cx.listener(|this, _, _, cx| {
                             let image = this.image_input.read(cx).value().to_string();
                             let name = this.name_input.read(cx).value().to_string();
@@ -1518,41 +1694,187 @@ impl AppView {
                     )),
             )
     }
-}
 
-impl Render for AppView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        h_flex()
-            .size_full()
-            .bg(cx.theme().background)
-            .child(self.render_sidebar(cx))
+    fn render_sdk_setup_modal(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = self.t();
+        let phase = self.sdk_setup_phase.unwrap_or(SdkSetupPhase::Running);
+        let failed = phase == SdkSetupPhase::Failed;
+        let badge_color = if failed {
+            cx.theme().red
+        } else {
+            cx.theme().blue
+        };
+        let logs = self
+            .sdk_setup_logs
+            .iter()
+            .cloned()
+            .collect::<Vec<SharedString>>();
+
+        div()
+            .id("sdk-setup-modal")
+            .absolute()
+            .top_0()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(cx.theme().overlay)
+            .occlude()
             .child(
                 v_flex()
-                    .size_full()
-                    .min_w_0()
-                    .child(self.render_title_bar(cx))
+                    .w(px(560.))
+                    .max_h(px(520.))
+                    .m_6()
+                    .p_5()
+                    .gap_3()
+                    .rounded(cx.theme().radius_lg)
+                    .border_1()
+                    .border_color(cx.theme().border)
+                    .bg(cx.theme().background)
+                    .shadow_md()
                     .child(
-                        v_flex()
-                            .flex_1()
-                            .min_h_0()
-                            .p_4()
-                            .gap_4()
-                            .child(self.render_toolbar(cx))
+                        h_flex()
+                            .items_center()
+                            .justify_between()
+                            .child(div().font_semibold().text_base().child(t.sdk_setup_title))
                             .child(
-                                div().id("section").flex_1().min_h_0().map(|panel| {
-                                    match self.section {
-                                        Section::Containers => {
-                                            panel.child(self.render_containers(cx))
-                                        }
-                                        Section::Images => panel.child(self.render_images(cx)),
-                                        Section::Volumes => panel.child(self.render_volumes(cx)),
-                                        Section::Run => panel.child(self.render_run(cx)),
-                                        Section::Settings => panel.child(self.render_settings(cx)),
+                                div()
+                                    .px_2()
+                                    .py_0p5()
+                                    .rounded(cx.theme().radius)
+                                    .bg(badge_color.opacity(0.18))
+                                    .text_color(badge_color)
+                                    .text_xs()
+                                    .font_semibold()
+                                    .child(phase.label(t)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(t.sdk_setup_intro),
+                    )
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .truncate()
+                                    .child(self.sdk_setup_status.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_semibold()
+                                    .child(format!("{:.0}%", self.sdk_setup_progress)),
+                            ),
+                    )
+                    .child(
+                        Progress::new("sdk-setup-progress")
+                            .w_full()
+                            .h_2()
+                            .value(self.sdk_setup_progress),
+                    )
+                    .child(
+                        div()
+                            .id("sdk-setup-logs")
+                            .h(px(220.))
+                            .w_full()
+                            .overflow_y_scroll()
+                            .rounded(cx.theme().radius)
+                            .border_1()
+                            .border_color(cx.theme().border)
+                            .bg(cx.theme().background.opacity(0.65))
+                            .p_2()
+                            .child(
+                                v_flex().gap_0p5().w_full().map(|list| {
+                                    if logs.is_empty() {
+                                        list.child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(t.sdk_setup_logs_placeholder),
+                                        )
+                                    } else {
+                                        list.children(logs.into_iter().map(|line| {
+                                            div()
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(line)
+                                        }))
                                     }
                                 }),
                             ),
                     )
-                    .child(self.render_status_bar(cx)),
+                    .when(failed, |el| {
+                        el.child(
+                            Button::new("sdk-setup-retry")
+                                .primary()
+                                .label(t.sdk_setup_retry)
+                                .icon(IconName::RefreshCw)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.begin_sdk_setup(true, cx);
+                                })),
+                        )
+                    }),
             )
+    }
+}
+
+impl Render for AppView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let show_setup = self.sdk_setup_phase.is_some();
+        div()
+            .relative()
+            .size_full()
+            .bg(cx.theme().background)
+            .child(
+                h_flex()
+                    .size_full()
+                    .child(self.render_sidebar(cx))
+                    .child(
+                        v_flex()
+                            .size_full()
+                            .min_w_0()
+                            .child(self.render_title_bar(cx))
+                            .child(
+                                v_flex()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .p_4()
+                                    .gap_4()
+                                    .child(self.render_toolbar(cx))
+                                    .child(
+                                        div().id("section").flex_1().min_h_0().map(|panel| {
+                                            match self.section {
+                                                Section::Containers => {
+                                                    panel.child(self.render_containers(cx))
+                                                }
+                                                Section::Images => {
+                                                    panel.child(self.render_images(cx))
+                                                }
+                                                Section::Volumes => {
+                                                    panel.child(self.render_volumes(cx))
+                                                }
+                                                Section::Run => panel.child(self.render_run(cx)),
+                                                Section::Settings => {
+                                                    panel.child(self.render_settings(cx))
+                                                }
+                                            }
+                                        }),
+                                    ),
+                            )
+                            .child(self.render_status_bar(cx)),
+                    ),
+            )
+            .when(show_setup, |root| {
+                root.child(self.render_sdk_setup_modal(cx))
+            })
     }
 }

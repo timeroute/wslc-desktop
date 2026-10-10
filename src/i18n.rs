@@ -67,7 +67,7 @@ pub struct Strings {
     pub volumes_count: &'static str,
     pub refreshed_summary: &'static str,
     pub mode_live: &'static str,
-    pub mode_demo: &'static str,
+    pub mode_unavailable: &'static str,
 
     pub no_containers_title: &'static str,
     pub no_containers_detail: &'static str,
@@ -85,6 +85,17 @@ pub struct Strings {
     pub pull_worker_disconnected: &'static str,
     pub image_ref_empty: &'static str,
     pub pulled_image: &'static str,
+
+    pub sdk_setup_title: &'static str,
+    pub sdk_setup_intro: &'static str,
+    pub sdk_setup_retry: &'static str,
+    pub sdk_setup_installing: &'static str,
+    pub sdk_setup_failed: &'static str,
+    pub sdk_setup_logs_placeholder: &'static str,
+    pub sdk_setup_phase_running: &'static str,
+    pub sdk_setup_phase_failed: &'static str,
+    pub sdk_setup_channel_disconnected: &'static str,
+    pub sdk_locked: &'static str,
 
     pub run_intro: &'static str,
     pub image_label: &'static str,
@@ -155,7 +166,7 @@ pub static EN: Strings = Strings {
     volumes_count: "{count} volumes",
     refreshed_summary: "Refreshed · {containers} containers · {images} images · {volumes} volumes · {mode}",
     mode_live: "live",
-    mode_demo: "demo",
+    mode_unavailable: "unavailable",
 
     no_containers_title: "No containers",
     no_containers_detail: "Run an image from the Run tab, then refresh.",
@@ -174,7 +185,18 @@ pub static EN: Strings = Strings {
     image_ref_empty: "Image reference is empty",
     pulled_image: "Pulled image",
 
-    run_intro: "Start a detached container through the WSL Containers SDK. Without the SDK, demo mode only updates the in-memory list.",
+    sdk_setup_title: "WSL Containers SDK",
+    sdk_setup_intro: "Install or update the SDK to continue. The app stays locked until a live session starts. If this keeps failing, install or update WSL yourself (`wsl --install` / `wsl --update`), then retry.",
+    sdk_setup_retry: "Retry install SDK",
+    sdk_setup_installing: "Installing / connecting…",
+    sdk_setup_failed: "SDK setup failed",
+    sdk_setup_logs_placeholder: "Setup logs will appear here.",
+    sdk_setup_phase_running: "SETUP",
+    sdk_setup_phase_failed: "FAILED",
+    sdk_setup_channel_disconnected: "SDK setup channel disconnected",
+    sdk_locked: "Waiting for WSL Containers SDK…",
+
+    run_intro: "Start a detached container through the WSL Containers SDK.",
     image_label: "Image",
     name_optional: "Name (optional)",
     name_placeholder: "optional container name",
@@ -208,10 +230,10 @@ pub static EN: Strings = Strings {
     pull_failed_msg: "Pull failed: {err}",
 
     engine_connected: "Connected via WSL Containers SDK {bin}",
-    engine_unusable: "SDK unavailable ({err}); using demo data",
-    engine_missing: "wslcsdk.dll not available — showing demo data. Need network on first launch to download the SDK, plus WSL (`wsl --update`).",
-    engine_missing_components: "WSL Containers runtime incomplete ({err}). Run `wsl --install` / `wsl --update`, then reboot if prompted.",
-    engine_sdk_outdated: "Cached wslcsdk.dll is too old for this WSL. Reopen the app (it will re-fetch a matching SDK) or run `wsl --update`.",
+    engine_unusable: "SDK unavailable ({err}). Retry install in the setup dialog, or install/update WSL (`wsl --install` / `wsl --update`).",
+    engine_missing: "wslcsdk.dll not available. Need network to download the SDK, plus WSL (`wsl --update`). Use Retry in the setup dialog.",
+    engine_missing_components: "WSL Containers runtime incomplete ({err}). Run `wsl --install` / `wsl --update`, then reboot if prompted, and retry.",
+    engine_sdk_outdated: "Cached wslcsdk.dll is too old for this WSL. Use Retry to re-download a matching SDK, or run `wsl --update`.",
 };
 
 pub static ZH: Strings = Strings {
@@ -243,7 +265,7 @@ pub static ZH: Strings = Strings {
     volumes_count: "{count} 个卷",
     refreshed_summary: "已刷新 · {containers} 容器 · {images} 镜像 · {volumes} 卷 · {mode}",
     mode_live: "实时",
-    mode_demo: "演示",
+    mode_unavailable: "不可用",
 
     no_containers_title: "暂无容器",
     no_containers_detail: "可在「运行」页启动镜像，然后刷新。",
@@ -262,7 +284,18 @@ pub static ZH: Strings = Strings {
     image_ref_empty: "镜像引用为空",
     pulled_image: "已拉取镜像",
 
-    run_intro: "通过 WSL Containers SDK 启动分离式容器。未安装 SDK 时，演示模式仅更新内存列表。",
+    sdk_setup_title: "WSL Containers SDK",
+    sdk_setup_intro: "请安装或更新 SDK 后才能继续。在成功建立实时会话前，应用将保持锁定。若反复失败，请自行安装/更新 WSL（`wsl --install` / `wsl --update`），然后再重试。",
+    sdk_setup_retry: "重新安装 SDK",
+    sdk_setup_installing: "正在安装 / 连接…",
+    sdk_setup_failed: "SDK 安装失败",
+    sdk_setup_logs_placeholder: "安装日志将显示在这里。",
+    sdk_setup_phase_running: "安装中",
+    sdk_setup_phase_failed: "失败",
+    sdk_setup_channel_disconnected: "SDK 安装通道已断开",
+    sdk_locked: "等待 WSL Containers SDK…",
+
+    run_intro: "通过 WSL Containers SDK 启动分离式容器。",
     image_label: "镜像",
     name_optional: "名称（可选）",
     name_placeholder: "可选容器名称",
@@ -296,10 +329,10 @@ pub static ZH: Strings = Strings {
     pull_failed_msg: "拉取失败: {err}",
 
     engine_connected: "已通过 WSL Containers SDK {bin} 连接",
-    engine_unusable: "SDK 不可用（{err}）；使用演示数据",
-    engine_missing: "无法使用 wslcsdk.dll — 显示演示数据。首次启动需联网下载 SDK，并已安装/更新 WSL（`wsl --update`）。",
-    engine_missing_components: "WSL Containers 运行时不完整（{err}）。请执行 `wsl --install` / `wsl --update`，必要时重启。",
-    engine_sdk_outdated: "缓存的 wslcsdk.dll 过旧。请重新打开应用（会自动拉取匹配 SDK），或先 `wsl --update`。",
+    engine_unusable: "SDK 不可用（{err}）。请在安装弹窗中重试，或自行安装/更新 WSL（`wsl --install` / `wsl --update`）。",
+    engine_missing: "无法使用 wslcsdk.dll。需联网下载 SDK，并已安装/更新 WSL（`wsl --update`）。请在安装弹窗中重试。",
+    engine_missing_components: "WSL Containers 运行时不完整（{err}）。请执行 `wsl --install` / `wsl --update`，必要时重启后再重试。",
+    engine_sdk_outdated: "缓存的 wslcsdk.dll 过旧。请点击重试以下载匹配 SDK，或先 `wsl --update`。",
 };
 
 pub fn fmt1(template: &str, key: &str, value: impl AsRef<str>) -> String {

@@ -2,7 +2,7 @@
 
 面向 Windows **WSL Containers（WSLc）** 的轻量级桌面管理器，基于 [GPUI Kit](https://gpui-kit.com)（Zed GPUI + 组件库）构建。
 
-通过官方 **WSL Containers SDK**（Rust crate [`wslc`](https://crates.io/crates/wslc)）浏览与管理容器、镜像与 VHD 卷。MSI **不捆绑** DLL：首次启动读取本机 `wslc`/`wsl` 版本，从 NuGet 下载匹配的 `Microsoft.WSL.Containers` 原生库到 `%LOCALAPPDATA%\WSLcDesktop\sdk\`；会话数据在同级的 `session\`（与 SDK 缓存分离，避免「目录非空」）。WSL 版本变化时会再检查并升级 SDK。若下载失败或运行时组件不齐，则进入 **Demo**。容器操作走 SDK，**不用** CLI。
+通过官方 **WSL Containers SDK**（Rust crate [`wslc`](https://crates.io/crates/wslc)）浏览与管理容器、镜像与 VHD 卷。MSI **不捆绑** DLL：首次启动以**阻塞弹窗**安装/更新 SDK（日志、进度、状态），期间不可进行其他操作。读取本机 `wslc`/`wsl` 版本，从 NuGet 下载匹配的 `Microsoft.WSL.Containers` 原生库到 `%LOCALAPPDATA%\WSLcDesktop\sdk\`；会话数据在同级的 `session\`（与 SDK 缓存分离）。WSL 版本变化时会再检查并升级 SDK。**无 Demo 模式**：Live 失败则应用保持锁定，只能在弹窗中重复安装 SDK 直至成功，或自行安装/更新 WSL 后再重试。容器操作走 SDK，**不用** CLI。
 
 ## 功能
 
@@ -10,7 +10,7 @@
 - **Images**：输入镜像名直接 Pull（状态 / 进度条 / 日志），查看本地镜像，跳转 Run 或删除
 - **Volumes**：创建 / 删除会话 VHD 卷（默认 1 GiB 动态盘；C SDK 无 list API，应用内跟踪）
 - **Run**：按镜像引用启动 detached 容器（可选名称）
-- **引擎状态**：LIVE（SDK Session）或 DEMO（内存样例数据）
+- **引擎状态**：LIVE（SDK Session）；未就绪时全屏 SDK 安装弹窗（OFF）
 - **设置**：TitleBar 齿轮按钮打开；界面语言（中文 / English，默认跟随系统）与主题（深色 / 浅色）
 
 ## 环境要求
@@ -41,7 +41,7 @@ cargo run
 cargo build --release
 ```
 
-单元测试（Demo 状态机与格式化辅助）：
+单元测试（版本匹配与格式化辅助）：
 
 ```powershell
 cargo test
@@ -106,7 +106,7 @@ cargo wix --sign
 | **EXE 安装向导** | [Inno Setup](https://jrsoftware.org/isinfo.php) / NSIS | 先 `cargo build --release`，再把 `target\release\wslc-desktop.exe` 写进脚本 |
 | **便携版** | 直接分发 exe | 拷贝 `target\release\wslc-desktop.exe`（目标机通常还需 [VC++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)） |
 
-若运行时报缺 VC++ 运行库，把对应 [VC++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) 一并装上。LIVE 依赖本机 WSL + 可发现的 `wslcsdk.dll`；状态栏会显示具体失败原因（找不到 DLL / 组件缺失 / SDK 过旧等）。
+若运行时报缺 VC++ 运行库，把对应 [VC++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) 一并装上。LIVE 依赖本机 WSL + 可发现的 `wslcsdk.dll`；安装弹窗与状态栏会显示具体失败原因（找不到 DLL / 组件缺失 / SDK 过旧等）。
 
 ### 5. GitHub Actions 自动打 MSI
 
@@ -142,15 +142,15 @@ src/
   main.rs            # 窗口启动与快捷键
   app.rs             # 侧栏导航 + TitleBar 设置按钮
   i18n.rs            # 中英文字符串与系统语言检测
-  wslc.rs            # WSL Containers SDK 封装与 Demo 回退
+  wslc/              # WSL Containers SDK 封装（Live only；安装进度事件）
 ```
 
 ## 架构说明
 
 ```text
-UI (GPUI Kit) ──► WslcClient ──► 探测 wslc 版本 → NuGet 下载/缓存 wslcsdk.dll
-                      │                └──► wslc crate Session API
-                      └─► DemoState（下载失败 / WSL 组件不可用时）
+UI (GPUI Kit) ──► SDK 安装弹窗（日志/进度）──► 探测 wslc 版本 → NuGet 下载/缓存 wslcsdk.dll
+                      │                              └──► wslc crate Session API（Live）
+                      └─► 失败则锁定 UI，仅可重试安装或自行修复 WSL
 ```
 
 - **Images**：`Session::list_images` / `pull_image` / `delete_image`

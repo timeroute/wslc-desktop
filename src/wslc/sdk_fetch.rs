@@ -7,7 +7,7 @@
 #![cfg(windows)]
 
 use std::fs::{self, File};
-use std::io::{copy, Write};
+use std::io::{copy, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -20,6 +20,13 @@ use super::sdk_version::{extract_version, pick_nuget_version};
 const NUGET_INDEX: &str =
     "https://api.nuget.org/v3-flatcontainer/microsoft.wsl.containers/index.json";
 const INDEX_MAX_AGE: Duration = Duration::from_secs(60 * 60); // 1 hour
+
+#[derive(Debug, Clone)]
+pub enum FetchEvent {
+    Status(String),
+    Log(String),
+    Progress(f32),
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct IndexCache {
@@ -35,16 +42,63 @@ struct ActiveStamp {
 }
 
 /// Ensure a host-matched `wslcsdk.dll` is on disk; return its directory for PATH.
-pub fn ensure_sdk_dir() -> Result<PathBuf> {
-    let host = probe_host_version().unwrap_or_else(|_| "unknown".into());
+///
+/// Progress values are 0–100 for this download/cache stage.
+pub fn ensure_sdk_dir(
+    force_redownload: bool,
+    mut on_event: impl FnMut(FetchEvent),
+) -> Result<PathBuf> {
+    let mut emit = |ev: FetchEvent| on_event(ev);
+
+    emit(FetchEvent::Status("Detecting WSL / wslc version…".into()));
+    emit(FetchEvent::Progress(5.0));
+    let host = match probe_host_version() {
+        Ok(v) => {
+            emit(FetchEvent::Log(format!("Host version: {v}")));
+            v
+        }
+        Err(err) => {
+            emit(FetchEvent::Log(format!(
+                "Could not read wslc/wsl version: {err:#}"
+            )));
+            emit(FetchEvent::Log(
+                "Install or update WSL (`wsl --install` / `wsl --update`), ensure it is on PATH, then retry."
+                    .into(),
+            ));
+            "unknown".into()
+        }
+    };
+
     let arch = native_arch_folder();
-    let versions = nuget_versions().context("list Microsoft.WSL.Containers versions")?;
+    emit(FetchEvent::Log(format!("Native arch folder: {arch}")));
+    emit(FetchEvent::Progress(12.0));
+
+    emit(FetchEvent::Status("Listing Microsoft.WSL.Containers on NuGet…".into()));
+    let versions = nuget_versions(&mut emit).context("list Microsoft.WSL.Containers versions")?;
+    emit(FetchEvent::Log(format!(
+        "NuGet published {} package version(s)",
+        versions.len()
+    )));
+    emit(FetchEvent::Progress(22.0));
+
     let nuget = pick_nuget_version(&host, &versions)
         .ok_or_else(|| anyhow!("no Microsoft.WSL.Containers versions published"))?;
+    emit(FetchEvent::Log(format!(
+        "Selected NuGet package version: {nuget} (host {host})"
+    )));
 
     let dir = sdk_root().join(format!("nuget-{nuget}")).join(arch);
     let dll = dir.join("wslcsdk.dll");
     let stamp_path = sdk_root().join("active.json");
+
+    if force_redownload && dll.is_file() {
+        emit(FetchEvent::Log(format!(
+            "Retry requested — removing cached DLL at {}",
+            dll.display()
+        )));
+        let _ = fs::remove_file(&dll);
+        let _ = fs::remove_file(&stamp_path);
+    }
 
     if dll.is_file() {
         if let Ok(raw) = fs::read_to_string(&stamp_path) {
@@ -53,20 +107,38 @@ pub fn ensure_sdk_dir() -> Result<PathBuf> {
                     && stamp.nuget_version == nuget
                     && stamp.arch == arch
                 {
+                    emit(FetchEvent::Status("Using cached SDK".into()));
+                    emit(FetchEvent::Log(format!(
+                        "Cache hit: {}",
+                        dll.display()
+                    )));
+                    emit(FetchEvent::Progress(100.0));
                     return Ok(dir);
                 }
             }
         }
         // Package already extracted; host string may have changed.
         if nuget_dir_ready(&dir) {
+            emit(FetchEvent::Status("Refreshing SDK stamp…".into()));
+            emit(FetchEvent::Log(format!(
+                "Reusing extracted DLL at {}",
+                dll.display()
+            )));
             write_stamp(&stamp_path, &host, &nuget, arch)?;
+            emit(FetchEvent::Progress(100.0));
             return Ok(dir);
         }
     }
 
-    download_nuget_dll(&nuget, arch, &dir)
+    emit(FetchEvent::Status(format!(
+        "Downloading Microsoft.WSL.Containers {nuget}…"
+    )));
+    emit(FetchEvent::Progress(28.0));
+    download_nuget_dll(&nuget, arch, &dir, &mut emit)
         .with_context(|| format!("download Microsoft.WSL.Containers {nuget} ({arch})"))?;
     write_stamp(&stamp_path, &host, &nuget, arch)?;
+    emit(FetchEvent::Status("SDK installed".into()));
+    emit(FetchEvent::Progress(100.0));
     Ok(dir)
 }
 
@@ -144,17 +216,21 @@ fn run_hidden(args: &[&str]) -> Result<String> {
     Ok(text)
 }
 
-fn nuget_versions() -> Result<Vec<String>> {
+fn nuget_versions(emit: &mut dyn FnMut(FetchEvent)) -> Result<Vec<String>> {
     let cache_path = sdk_root().join("nuget-index.json");
     if let Ok(raw) = fs::read_to_string(&cache_path) {
         if let Ok(cache) = serde_json::from_str::<IndexCache>(&raw) {
             let age = now_unix().saturating_sub(cache.fetched_unix);
             if age < INDEX_MAX_AGE.as_secs() && !cache.versions.is_empty() {
+                emit(FetchEvent::Log(
+                    "Using cached NuGet version index (< 1h old)".into(),
+                ));
                 return Ok(cache.versions);
             }
         }
     }
 
+    emit(FetchEvent::Log(format!("GET {NUGET_INDEX}")));
     let body: serde_json::Value = ureq::get(NUGET_INDEX)
         .call()
         .context("GET nuget index")?
@@ -189,22 +265,57 @@ fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
-fn download_nuget_dll(version: &str, arch: &str, out_dir: &Path) -> Result<()> {
+fn download_nuget_dll(
+    version: &str,
+    arch: &str,
+    out_dir: &Path,
+    emit: &mut dyn FnMut(FetchEvent),
+) -> Result<()> {
     fs::create_dir_all(out_dir)?;
     let url = format!(
         "https://api.nuget.org/v3-flatcontainer/microsoft.wsl.containers/{version}/microsoft.wsl.containers.{version}.nupkg"
     );
     let tmp_nupkg = out_dir.join(format!("microsoft.wsl.containers.{version}.nupkg"));
+    emit(FetchEvent::Log(format!("GET {url}")));
     {
         let resp = ureq::get(&url)
             .call()
             .with_context(|| format!("GET {url}"))?;
+        let total = resp
+            .header("Content-Length")
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0);
         let mut reader = resp.into_reader();
         let mut file = File::create(&tmp_nupkg)?;
-        copy(&mut reader, &mut file)?;
+        let mut buf = [0u8; 64 * 1024];
+        let mut written: u64 = 0;
+        loop {
+            let n = reader.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            file.write_all(&buf[..n])?;
+            written += n as u64;
+            if total > 0 {
+                let frac = written as f32 / total as f32;
+                // Map download into 28–75%.
+                emit(FetchEvent::Progress(28.0 + frac * 47.0));
+            } else if written % (512 * 1024) < 64 * 1024 {
+                emit(FetchEvent::Log(format!(
+                    "Downloaded {} KB…",
+                    written / 1024
+                )));
+            }
+        }
         file.flush()?;
+        emit(FetchEvent::Log(format!(
+            "Downloaded nupkg ({} KB)",
+            written / 1024
+        )));
     }
 
+    emit(FetchEvent::Status("Extracting wslcsdk.dll…".into()));
+    emit(FetchEvent::Progress(78.0));
     let file = File::open(&tmp_nupkg)?;
     let mut archive = zip::ZipArchive::new(file).context("open nupkg as zip")?;
     let member = format!("runtimes/{arch}/native/wslcsdk.dll");
@@ -221,5 +332,10 @@ fn download_nuget_dll(version: &str, arch: &str, out_dir: &Path) -> Result<()> {
     if !dll_path.is_file() {
         return Err(anyhow!("extracted dll missing at {}", dll_path.display()));
     }
+    emit(FetchEvent::Log(format!(
+        "Extracted {}",
+        dll_path.display()
+    )));
+    emit(FetchEvent::Progress(95.0));
     Ok(())
 }
