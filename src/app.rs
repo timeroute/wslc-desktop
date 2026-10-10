@@ -2,15 +2,14 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::Duration;
 
 use gpui_kit::component::{
-    ActiveTheme, Disableable as _, Icon, IconName, Sizable as _, StyledExt as _, Theme, ThemeMode,
-    TitleBar,
+    ActiveTheme, Disableable as _, Icon, IconName, Selectable as _, Sizable as _, StyledExt as _,
+    Theme, ThemeMode, TitleBar,
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputState},
     label::Label,
     progress::Progress,
     sidebar::{Sidebar, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuItem},
-    tab::{Tab, TabBar},
     v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
@@ -35,17 +34,6 @@ pub enum Section {
 }
 
 impl Section {
-    fn from_index(index: usize) -> Self {
-        match index {
-            0 => Self::Containers,
-            1 => Self::Images,
-            2 => Self::Volumes,
-            3 => Self::Run,
-            4 => Self::Settings,
-            _ => Self::Containers,
-        }
-    }
-
     fn label(self, t: &Strings) -> &'static str {
         match self {
             Self::Containers => t.containers,
@@ -552,17 +540,30 @@ impl AppView {
                     ]),
                 ),
             )
-            .child(
-                SidebarGroup::new(t.preferences).child(
-                    SidebarMenu::new().children([SidebarMenuItem::new(t.settings)
+    }
+
+    fn render_title_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = self.t();
+        TitleBar::new().child(
+            h_flex()
+                .id("title-bar-content")
+                .w_full()
+                .h_full()
+                .items_center()
+                .justify_end()
+                .pr_2()
+                .child(
+                    Button::new("titlebar-settings")
+                        .ghost()
                         .icon(IconName::Settings)
-                        .active(self.section == Section::Settings)
+                        .tooltip(t.settings)
+                        .selected(self.section == Section::Settings)
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.section = Section::Settings;
                             cx.notify();
-                        }))]),
+                        })),
                 ),
-            )
+        )
     }
 
     fn render_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1496,9 +1497,6 @@ impl AppView {
 
 impl Render for AppView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let section_index = self.section as usize;
-        let t = self.t();
-
         h_flex()
             .size_full()
             .bg(cx.theme().background)
@@ -1507,23 +1505,7 @@ impl Render for AppView {
                 v_flex()
                     .size_full()
                     .min_w_0()
-                    .child(
-                        TitleBar::new().child(
-                            TabBar::new("section-tabs")
-                                .mt(px(1.))
-                                .segmented()
-                                .selected_index(section_index)
-                                .on_click(cx.listener(|this, ix: &usize, _, cx| {
-                                    this.section = Section::from_index(*ix);
-                                    cx.notify();
-                                }))
-                                .child(Tab::new().label(t.containers))
-                                .child(Tab::new().label(t.images))
-                                .child(Tab::new().label(t.volumes))
-                                .child(Tab::new().label(t.run))
-                                .child(Tab::new().label(t.settings)),
-                        ),
-                    )
+                    .child(self.render_title_bar(cx))
                     .child(
                         v_flex()
                             .flex_1()
