@@ -8459,8 +8459,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 [[package]]
 name = "wslc"
 version = "0.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67316b297a50e9f907fee39bf58ae2ddfa8c4978c167cded1f75cfdd88fdc6f2"
+source = "git+https://github.com/timeroute/wslc-rs?rev=4db28be2d53c7ad0e3e2bdf6bcf7c0c28e987156#4db28be2d53c7ad0e3e2bdf6bcf7c0c28e987156"
 dependencies = [
  "wslc-sys",
 ]
@@ -8483,8 +8482,7 @@ dependencies = [
 [[package]]
 name = "wslc-sys"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ef7abb662dfaa3198e7263924e0b4a7616b900ea13b47617835bf2894433c56"
+source = "git+https://github.com/timeroute/wslc-rs?rev=4db28be2d53c7ad0e3e2bdf6bcf7c0c28e987156#4db28be2d53c7ad0e3e2bdf6bcf7c0c28e987156"
 
 [[package]]
 name = "x11"

@@ -54,6 +54,13 @@ pub(crate) enum SdkSetupPhase {
     Failed,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ConfirmAction {
+    RemoveContainer { key: String, label: String },
+    RemoveImage { reference: String },
+    RemoveVolume { name: String },
+}
+
 impl SdkSetupPhase {
     pub(crate) fn label(self, t: &Strings) -> &'static str {
         match self {
@@ -73,6 +80,7 @@ impl super::AppView {
             || self.busy
             || self.pull_phase == PullPhase::Pulling
             || self.logs_modal_open
+            || self.confirm.is_some()
             || (self.create_modal_open && self.busy)
     }
 

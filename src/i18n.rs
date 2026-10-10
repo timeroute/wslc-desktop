@@ -63,6 +63,7 @@ pub struct Strings {
     pub overview_status_live: &'static str,
     pub overview_status_off: &'static str,
     pub overview_na: &'static str,
+    pub overview_persist_hint: &'static str,
 
     pub refresh: &'static str,
     pub working: &'static str,
@@ -78,7 +79,13 @@ pub struct Strings {
     pub pull: &'static str,
     pub pulling: &'static str,
     pub close: &'static str,
+    pub cancel: &'static str,
     pub logs: &'static str,
+
+    pub confirm_remove_title: &'static str,
+    pub confirm_remove_container: &'static str,
+    pub confirm_remove_image: &'static str,
+    pub confirm_remove_volume: &'static str,
 
     pub containers_count: &'static str,
     pub images_count: &'static str,
@@ -199,6 +206,7 @@ pub static EN: Strings = Strings {
     overview_status_live: "Connected (LIVE)",
     overview_status_off: "Unavailable (OFF)",
     overview_na: "—",
+    overview_persist_hint: "Containers and volumes are restored after app restart (session is not terminated on exit).",
 
     refresh: "Refresh",
     working: "Working…",
@@ -214,7 +222,13 @@ pub static EN: Strings = Strings {
     pull: "Pull",
     pulling: "Pulling…",
     close: "Close",
+    cancel: "Cancel",
     logs: "Logs",
+
+    confirm_remove_title: "Confirm remove",
+    confirm_remove_container: "Remove container “{name}”? This cannot be undone.",
+    confirm_remove_image: "Remove image “{name}”? This cannot be undone.",
+    confirm_remove_volume: "Remove volume “{name}”? This cannot be undone.",
 
     containers_count: "{total} total · {running} running",
     images_count: "{count} images",
@@ -335,6 +349,7 @@ pub static ZH: Strings = Strings {
     overview_status_live: "已连接（LIVE）",
     overview_status_off: "不可用（OFF）",
     overview_na: "—",
+    overview_persist_hint: "退出应用不会终止会话；重启后会自动恢复容器与卷。",
 
     refresh: "刷新",
     working: "处理中…",
@@ -350,7 +365,13 @@ pub static ZH: Strings = Strings {
     pull: "拉取",
     pulling: "拉取中…",
     close: "关闭",
+    cancel: "取消",
     logs: "日志",
+
+    confirm_remove_title: "确认删除",
+    confirm_remove_container: "删除容器「{name}」？此操作不可撤销。",
+    confirm_remove_image: "删除镜像「{name}」？此操作不可撤销。",
+    confirm_remove_volume: "删除卷「{name}」？此操作不可撤销。",
 
     containers_count: "共 {total} · 运行中 {running}",
     images_count: "{count} 个镜像",

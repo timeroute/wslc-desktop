@@ -14,6 +14,7 @@ use crate::wslc::{
     ContainerInfo, EngineStatus, ImageInfo, PullEvent, SdkSetupEvent, VolumeInfo, WslcClient,
 };
 
+mod confirm;
 mod containers;
 mod images;
 mod overview;
@@ -29,7 +30,7 @@ mod widgets;
 
 pub use state::Section;
 
-use state::{PullPhase, SdkSetupPhase};
+use state::{ConfirmAction, PullPhase, SdkSetupPhase};
 
 pub struct AppView {
     client: Option<WslcClient>,
@@ -62,6 +63,7 @@ pub struct AppView {
     logs_modal_open: bool,
     logs_title: SharedString,
     logs_text: SharedString,
+    confirm: Option<ConfirmAction>,
     pull_phase: PullPhase,
     pull_status: SharedString,
     pull_progress: f32,
@@ -138,6 +140,7 @@ impl AppView {
             logs_modal_open: false,
             logs_title: SharedString::default(),
             logs_text: SharedString::default(),
+            confirm: None,
             pull_phase: PullPhase::Idle,
             pull_status: t.pull_hint.into(),
             pull_progress: 0.0,
@@ -212,8 +215,15 @@ impl Render for AppView {
                 root.child(self.render_create_modal(cx))
             })
             .when(self.logs_modal_open, |root| root.child(self.render_logs_modal(cx)))
-            .when(self.busy && !show_setup && !self.pull_modal_open, |root| {
-                root.child(self.render_busy_overlay(cx))
+            .when(self.confirm.is_some(), |root| {
+                root.child(self.render_confirm_modal(cx))
             })
+            .when(
+                self.busy
+                    && !show_setup
+                    && !self.pull_modal_open
+                    && self.confirm.is_none(),
+                |root| root.child(self.render_busy_overlay(cx)),
+            )
     }
 }

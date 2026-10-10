@@ -9,6 +9,7 @@ use std::thread;
 
 use anyhow::{anyhow, Result};
 
+mod catalog;
 #[cfg(windows)]
 mod live;
 #[cfg(windows)]

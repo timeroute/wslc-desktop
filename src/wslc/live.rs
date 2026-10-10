@@ -7,6 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
 
+use super::catalog::{Catalog, PersistedContainer};
 use super::{
     split_ref, BackendKind, ContainerInfo, CreateContainerRequest, EngineStatus, ImageInfo,
     PortMapping, PullEvent, VolumeInfo, VolumeMapping,
@@ -304,12 +305,71 @@ impl LiveState {
             .start()
             .map_err(|e| anyhow!("{e}"))?;
 
-        Ok(Self {
+        let mut state = Self {
             session,
             version,
             containers: Vec::new(),
             volumes: Vec::new(),
-        })
+        };
+        state.restore_catalog();
+        Ok(state)
+    }
+
+    fn restore_catalog(&mut self) {
+        let catalog = Catalog::load();
+        self.volumes = catalog.volumes;
+        let mut restored = Vec::new();
+        for entry in catalog.containers {
+            let key = if !entry.id.is_empty() {
+                entry.id.as_str()
+            } else {
+                entry.name.as_str()
+            };
+            if key.is_empty() {
+                continue;
+            }
+            match self.session.open_container(key) {
+                Ok(handle) => {
+                    let id = handle.id().unwrap_or_else(|_| entry.id.clone());
+                    restored.push(TrackedContainer {
+                        id,
+                        name: entry.name,
+                        image: entry.image,
+                        created: entry.created,
+                        ports: entry.ports,
+                        volumes: entry.volumes,
+                        auto_remove: entry.auto_remove,
+                        handle,
+                    });
+                }
+                Err(_) => {
+                    // Gone from the session (auto-remove, deleted outside, etc.)
+                }
+            }
+        }
+        self.containers = restored;
+        let _ = self.persist_catalog();
+    }
+
+    fn persist_catalog(&self) -> Result<()> {
+        let catalog = Catalog {
+            version: super::catalog::CATALOG_VERSION,
+            containers: self
+                .containers
+                .iter()
+                .map(|c| PersistedContainer {
+                    id: c.id.clone(),
+                    name: c.name.clone(),
+                    image: c.image.clone(),
+                    ports: c.ports.clone(),
+                    volumes: c.volumes.clone(),
+                    auto_remove: c.auto_remove,
+                    created: c.created.clone(),
+                })
+                .collect(),
+            volumes: self.volumes.clone(),
+        };
+        catalog.save().map_err(|e| anyhow!("{e}"))
     }
 
     fn status(&self) -> EngineStatus {
@@ -338,6 +398,7 @@ impl LiveState {
     fn list_containers(&mut self, all: bool) -> Result<Vec<ContainerInfo>> {
         let mut rows = Vec::new();
         let mut keep = Vec::new();
+        let prior_len = self.containers.len();
         for mut tracked in self.containers.drain(..) {
             match tracked.handle.state() {
                 Ok(wslc::ContainerState::Deleted) => {
@@ -372,6 +433,11 @@ impl LiveState {
                     keep.push(tracked);
                 }
                 Err(err) => {
+                    // Handle gone after restart / external delete — drop from catalog.
+                    let msg = err.to_string();
+                    if msg.to_ascii_lowercase().contains("not found") {
+                        continue;
+                    }
                     rows.push(ContainerInfo {
                         id: tracked.id.clone(),
                         name: tracked.name.clone(),
@@ -386,7 +452,11 @@ impl LiveState {
                 }
             }
         }
+        let pruned = keep.len() != prior_len;
         self.containers = keep;
+        if pruned {
+            let _ = self.persist_catalog();
+        }
         Ok(rows)
     }
 
@@ -424,7 +494,9 @@ impl LiveState {
         tracked
             .handle
             .delete(wslc::DeleteContainerOptions::default().force(true))
-            .map_err(|e| anyhow!("{e}"))
+            .map_err(|e| anyhow!("{e}"))?;
+        let _ = self.persist_catalog();
+        Ok(())
     }
 
     fn remove_image(&self, reference: &str) -> Result<()> {
@@ -507,6 +579,7 @@ impl LiveState {
             auto_remove: request.auto_remove,
             handle,
         });
+        let _ = self.persist_catalog();
         Ok(name)
     }
 
@@ -533,6 +606,7 @@ impl LiveState {
                 size: format_bytes(DEFAULT_VOLUME_BYTES as i64),
             },
         );
+        let _ = self.persist_catalog();
         Ok(())
     }
 
@@ -545,6 +619,7 @@ impl LiveState {
             .delete_vhd_volume(name)
             .map_err(|e| anyhow!("{e}"))?;
         self.volumes.retain(|v| v.name != name);
+        let _ = self.persist_catalog();
         Ok(())
     }
 
@@ -658,7 +733,9 @@ fi
     }
 
     fn shutdown(self) {
-        let _ = self.session.terminate();
+        // Do not terminate the session: keep the VM + containers alive so the
+        // next launch can reopen handles via OpenContainer + the local catalog.
+        let _ = self.persist_catalog();
     }
 }
 

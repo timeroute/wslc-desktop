@@ -15,7 +15,7 @@ use crate::wslc::{
     ContainerInfo, CreateContainerRequest,
 };
 
-use super::state::PullPhase;
+use super::state::{ConfirmAction, PullPhase};
 use super::AppView;
 use super::parsing::{parse_bind_mounts, parse_port_mappings};
 use super::widgets::{modal_panel, modal_scrim};
@@ -354,16 +354,19 @@ impl AppView {
                                     .disabled(ops_off)
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.selected_container = Some(index);
-                                        let key = this
-                                            .containers
-                                            .get(index)
-                                            .map(Self::container_key)
-                                            .unwrap_or_default();
-                                        let template = this.t().removed;
-                                        this.with_busy(cx, move |client| {
-                                            client.remove_container(&key)?;
-                                            Ok(i18n::fmt1(template, "name", &key))
-                                        });
+                                        let Some(item) = this.containers.get(index) else {
+                                            return;
+                                        };
+                                        let key = Self::container_key(item);
+                                        let label = if item.name.is_empty() {
+                                            item.id.chars().take(12).collect::<String>()
+                                        } else {
+                                            item.name.clone()
+                                        };
+                                        this.request_confirm(
+                                            ConfirmAction::RemoveContainer { key, label },
+                                            cx,
+                                        );
                                     })),
                             ),
                     ),
@@ -486,16 +489,16 @@ impl AppView {
                                         let Some(c) = this.selected_container().cloned() else {
                                             return;
                                         };
-                                        let key = if c.name.is_empty() {
-                                            c.id.clone()
+                                        let key = Self::container_key(&c);
+                                        let label = if c.name.is_empty() {
+                                            c.id.chars().take(12).collect::<String>()
                                         } else {
                                             c.name.clone()
                                         };
-                                        let template = this.t().removed;
-                                        this.with_busy(cx, move |client| {
-                                            client.remove_container(&key)?;
-                                            Ok(i18n::fmt1(template, "name", &key))
-                                        });
+                                        this.request_confirm(
+                                            ConfirmAction::RemoveContainer { key, label },
+                                            cx,
+                                        );
                                     })),
                             ),
                     ),

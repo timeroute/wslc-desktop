@@ -89,7 +89,7 @@ impl ImageInfo {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct VolumeInfo {
     pub name: String,
     pub driver: String,

@@ -18,7 +18,7 @@ use crate::wslc::{
     PullEvent,
 };
 
-use super::state::{PullPhase, MAX_PULL_LOG_LINES};
+use super::state::{ConfirmAction, PullPhase, MAX_PULL_LOG_LINES};
 use super::AppView;
 use super::poll::recv_all;
 use super::widgets::{modal_panel, modal_scrim};
@@ -417,11 +417,10 @@ impl AppView {
                                             return;
                                         };
                                         let reference = img.reference();
-                                        let template = this.t().removed;
-                                        this.with_busy(cx, move |client| {
-                                            client.remove_image(&reference)?;
-                                            Ok(i18n::fmt1(template, "name", &reference))
-                                        });
+                                        this.request_confirm(
+                                            ConfirmAction::RemoveImage { reference },
+                                            cx,
+                                        );
                                     })),
                             ),
                     ),

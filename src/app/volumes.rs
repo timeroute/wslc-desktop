@@ -12,6 +12,7 @@ use gpui_kit::*;
 use crate::i18n::{self};
 use crate::wslc::VolumeInfo;
 
+use super::state::ConfirmAction;
 use super::AppView;
 
 impl AppView {
@@ -130,12 +131,10 @@ impl AppView {
                                 let Some(vol) = this.selected_volume().cloned() else {
                                     return;
                                 };
-                                let name = vol.name;
-                                let template = this.t().removed;
-                                this.with_busy(cx, move |client| {
-                                    client.remove_volume(&name)?;
-                                    Ok(i18n::fmt1(template, "name", &name))
-                                });
+                                this.request_confirm(
+                                    ConfirmAction::RemoveVolume { name: vol.name },
+                                    cx,
+                                );
                             })),
                     ),
             )

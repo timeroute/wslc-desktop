@@ -135,6 +135,12 @@ impl AppView {
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
                             .child(self.status.message.clone()),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(t.overview_persist_hint),
                     ),
             ))
             .child(

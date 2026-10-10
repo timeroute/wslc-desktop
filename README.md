@@ -7,9 +7,9 @@
 ## 功能
 
 - **总览（默认）**：引擎 / SDK / 应用版本、会话信息、容器·镜像·卷摘要
-- **Containers**：创建容器弹窗（镜像、名称、端口映射、卷映射、退出后删除、额外命令）；列表展示状态 / 端口 / 卷 / auto-remove；Start / Stop / Remove / 运行日志弹窗
-- **Images**：拉取镜像弹窗（进度 + 日志，拉取时锁定 UI）；列表；从此创建容器或删除
-- **Volumes**：创建 / 删除会话 VHD 卷（默认 1 GiB 动态盘；C SDK 无 list API，应用内跟踪）
+- **Containers**：创建容器弹窗（镜像、名称、端口映射、卷映射、退出后删除、额外命令）；列表展示状态 / 端口 / 卷 / auto-remove；Start / Stop / Remove（确认）/ 运行日志弹窗；退出应用后通过本地 catalog + `OpenContainer` 恢复
+- **Images**：拉取镜像弹窗（进度 + 日志，拉取时锁定 UI）；列表；从此创建容器或删除（确认）
+- **Volumes**：创建 / 删除会话 VHD 卷（默认 1 GiB 动态盘；catalog 持久化 + 确认删除）
 - **引擎状态**：LIVE（独立 `wslc-desktop` 会话）；未就绪时全屏 SDK 安装弹窗（OFF）
 - **设置**：TitleBar 齿轮；界面语言（中文 / English）与主题（深色 / 浅色）
 
@@ -154,8 +154,8 @@ UI (GPUI Kit) ──► SDK 安装弹窗 ──► NuGet 缓存 wslcsdk.dll
 ```
 
 - **Images**：本会话 `list_images` / `pull_image` / `delete_image`
-- **Containers**：本进程跟踪的 SDK 句柄（C SDK 尚无 ListContainers）
-- **Volumes**：`create_vhd_volume` / `delete_vhd_volume`，应用内跟踪
+- **Containers**：本进程跟踪的 SDK 句柄 + `%LOCALAPPDATA%\WSLcDesktop\catalog.json`；启动时 `OpenContainer` 重连（退出不 `terminate` 会话）
+- **Volumes**：`create_vhd_volume` / `delete_vhd_volume`，catalog 持久化
 
 ## 许可
 
