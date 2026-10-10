@@ -208,12 +208,6 @@ impl AppView {
         let t = self.t();
         match status.backend {
             BackendKind::Live => i18n::fmt1(t.engine_connected, "bin", &status.version),
-            BackendKind::Demo if status.binary == "demo"
-                && (status.message.contains("not found")
-                    || status.message.contains("SDK not found")) =>
-            {
-                t.engine_missing.to_string()
-            }
             BackendKind::Demo => {
                 let detail = status
                     .message
@@ -222,11 +216,26 @@ impl AppView {
                     .or_else(|| {
                         status
                             .message
-                            .strip_prefix("SDK session became unavailable")
-                            .map(|_| status.message.as_str())
+                            .strip_prefix("WSL Containers SDK not found")
+                            .map(|_| "")
                     })
                     .unwrap_or(status.message.as_str());
-                i18n::fmt1(t.engine_unusable, "err", detail)
+                let lower = detail.to_ascii_lowercase();
+                if lower.contains("sdk_needs_update") {
+                    t.engine_sdk_outdated.to_string()
+                } else if lower.contains("missing wsl components")
+                    || lower.contains("virtual_machine_platform")
+                    || lower.contains("wsl_package")
+                {
+                    i18n::fmt1(t.engine_missing_components, "err", detail)
+                } else if detail.is_empty()
+                    || lower.contains("sdk not found")
+                    || lower.contains("wslcsdk.dll")
+                {
+                    t.engine_missing.to_string()
+                } else {
+                    i18n::fmt1(t.engine_unusable, "err", detail)
+                }
             }
         }
     }

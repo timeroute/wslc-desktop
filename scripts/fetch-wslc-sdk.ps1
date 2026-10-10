@@ -1,22 +1,21 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Download Microsoft.WSL.Containers and stage wslcsdk.dll for MSI packaging.
+  Optional: download Microsoft.WSL.Containers for local `cargo run` / PATH setup.
 
 .DESCRIPTION
-  Fetches the NuGet package and copies the win-x64 native runtime next to the
-  WiX sources so `cargo wix` can embed it beside wslc-desktop.exe.
-  Does not redistribute Microsoft binaries into git — run before packaging.
+  The MSI does **not** bundle wslcsdk.dll. LIVE mode loads the host copy
+  (WSL install dir or PATH). Use this script only when developing without a
+  system SDK on PATH.
 
 .PARAMETER Version
-  NuGet package version. Defaults to $env:WSLC_SDK_VERSION or 2.9.3
-  (the version validated by wslc-rs against the preview C SDK).
+  NuGet package version. Defaults to $env:WSLC_SDK_VERSION or 3.0.1.
 
 .PARAMETER OutDir
-  Staging directory for the native DLL (default: wix\sdk\win-x64).
+  Directory that receives wslcsdk.dll (default: .wslc-sdk\native).
 #>
 param(
-    [string]$Version = $(if ($env:WSLC_SDK_VERSION) { $env:WSLC_SDK_VERSION } else { "2.9.3" }),
+    [string]$Version = $(if ($env:WSLC_SDK_VERSION) { $env:WSLC_SDK_VERSION } else { "3.0.1" }),
     [string]$OutDir = ""
 )
 
@@ -24,7 +23,7 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 if (-not $OutDir) {
-    $OutDir = Join-Path $repoRoot "wix\sdk\win-x64"
+    $OutDir = Join-Path $repoRoot ".wslc-sdk\native"
 }
 
 $cacheRoot = Join-Path $repoRoot ".wslc-sdk"
@@ -48,7 +47,6 @@ if (Test-Path $extractDir) {
 }
 New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
 
-# .nupkg is a zip; Expand-Archive wants a .zip extension on some PowerShell versions.
 $zipPath = Join-Path $cacheRoot "microsoft.wsl.containers.$Version.zip"
 Copy-Item -Force $nupkgPath $zipPath
 Write-Host "Extracting $zipPath"
@@ -59,11 +57,7 @@ if (-not (Test-Path $nativeDll)) {
     throw "wslcsdk.dll not found at $nativeDll"
 }
 
-$notice = Join-Path $extractDir "NOTICE.txt"
 Copy-Item -Force $nativeDll (Join-Path $OutDir "wslcsdk.dll")
-if (Test-Path $notice) {
-    Copy-Item -Force $notice (Join-Path $OutDir "NOTICE.txt")
-}
-
-Write-Host "Staged SDK files:"
-Get-ChildItem $OutDir | ForEach-Object { Write-Host "  $($_.FullName) ($($_.Length) bytes)" }
+Write-Host "Staged $(Join-Path $OutDir 'wslcsdk.dll')"
+Write-Host "Add to PATH for this session:"
+Write-Host "  `$env:PATH = '$OutDir;' + `$env:PATH"

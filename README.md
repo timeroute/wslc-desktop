@@ -2,7 +2,7 @@
 
 面向 Windows **WSL Containers（WSLc）** 的轻量级桌面管理器，基于 [GPUI Kit](https://gpui-kit.com)（Zed GPUI + 组件库）构建。
 
-通过官方 **WSL Containers SDK**（Rust crate [`wslc`](https://crates.io/crates/wslc) → `wslcsdk.dll`）浏览与管理容器、镜像与 VHD 卷。MSI 安装包会把 `wslcsdk.dll` 装到 exe 同目录，开箱即可尝试 **LIVE**（仍需本机已安装/更新 WSL）。若 SDK 加载失败或缺少 WSL 组件，则进入 **Demo** 模式（内存样例数据）。**不再调用** `wslc` / `container` CLI。
+通过官方 **WSL Containers SDK**（Rust crate [`wslc`](https://crates.io/crates/wslc) → 本机 `wslcsdk.dll`）浏览与管理容器、镜像与 VHD 卷。应用**不捆绑** SDK DLL，启动时从 WSL 安装目录 / `PATH` 加载系统副本，避免与本机 WSL 版本错配。若找不到 DLL 或运行时组件不齐，则进入 **Demo**。**不再调用** `wslc` / `container` CLI。
 
 ## 功能
 
@@ -25,14 +25,14 @@ wsl --update
 rustup default stable-x86_64-pc-windows-msvc
 ```
 
-从源码 `cargo run`（未走 MSI）时，需自行准备 `wslcsdk.dll`：
+LIVE 需要本机可加载的 `wslcsdk.dll`（通常随较新的 WSL 出现在 `%ProgramFiles%\WSL\`，或由开发者把 [Microsoft.WSL.Containers](https://www.nuget.org/packages/Microsoft.WSL.Containers) 的 `runtimes\win-x64\native` 加入 PATH）。本地开发可选用：
 
 ```powershell
 .\scripts\fetch-wslc-sdk.ps1
-$env:PATH = "$(Resolve-Path wix\sdk\win-x64);$env:PATH"
+$env:PATH = "$(Resolve-Path .\.wslc-sdk\native);$env:PATH"
 ```
 
-或按 [wslc-rs SDK installation](https://github.com/Ivanbeethoven/wslc-rs/blob/master/docs/sdk-installation.md) 配置。
+详见 [wslc-rs SDK installation](https://github.com/Ivanbeethoven/wslc-rs/blob/master/docs/sdk-installation.md)。
 
 ## 运行
 
@@ -78,10 +78,9 @@ cargo install cargo-wix
 
 ### 2. 打 MSI（含桌面图标）
 
-仓库已提交 `wix/main.wxs` 与 `wix/Product.ico`：安装后会创建 **开始菜单** 与 **桌面快捷方式**，并把 `wslcsdk.dll` 装到 exe 同目录（**不会** 写入 PATH）。
+仓库已提交 `wix/main.wxs` 与 `wix/Product.ico`：安装后会创建 **开始菜单** 与 **桌面快捷方式**（**不** 捆绑 `wslcsdk.dll`，**不** 写入 PATH）。
 
 ```powershell
-.\scripts\fetch-wslc-sdk.ps1   # 下载并暂存 Microsoft.WSL.Containers 原生 DLL
 cargo wix
 ```
 
@@ -114,7 +113,7 @@ cargo wix --sign
 | **EXE 安装向导** | [Inno Setup](https://jrsoftware.org/isinfo.php) / NSIS | 先 `cargo build --release`，再把 `target\release\wslc-desktop.exe` 写进脚本 |
 | **便携版** | 直接分发 exe | 拷贝 `target\release\wslc-desktop.exe`（目标机通常还需 [VC++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)） |
 
-MSI 已捆绑 `wslcsdk.dll`。若运行时报缺 VC++ 运行库，把对应 [VC++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) 一并装上，或在 WiX/Inno 脚本里捆绑。LIVE 仍依赖本机 WSL；未安装/过旧时应用会回退 Demo。
+若运行时报缺 VC++ 运行库，把对应 [VC++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) 一并装上。LIVE 依赖本机 WSL + 可发现的 `wslcsdk.dll`；状态栏会显示具体失败原因（找不到 DLL / 组件缺失 / SDK 过旧等）。
 
 ### 5. GitHub Actions 自动打 MSI
 
@@ -156,10 +155,9 @@ src/
 ## 架构说明
 
 ```text
-UI (GPUI Kit) ──► WslcClient ──► wslc crate / wslcsdk.dll（专用 SDK 线程持有 Session）
-                      │              ▲
-                      │              └── MSI：与 exe 同目录捆绑
-                      └─► DemoState（SDK / WSL 不可用时）
+UI (GPUI Kit) ──► WslcClient ──► wslc crate → 系统 wslcsdk.dll（WSL 目录 / PATH）
+                      │
+                      └─► DemoState（DLL / WSL 组件不可用时）
 ```
 
 - **Images**：`Session::list_images` / `pull_image` / `delete_image`

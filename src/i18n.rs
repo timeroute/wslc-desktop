@@ -122,6 +122,8 @@ pub struct Strings {
     pub engine_connected: &'static str,
     pub engine_unusable: &'static str,
     pub engine_missing: &'static str,
+    pub engine_missing_components: &'static str,
+    pub engine_sdk_outdated: &'static str,
 }
 
 pub static EN: Strings = Strings {
@@ -207,7 +209,9 @@ pub static EN: Strings = Strings {
 
     engine_connected: "Connected via WSL Containers SDK {bin}",
     engine_unusable: "SDK unavailable ({err}); using demo data",
-    engine_missing: "WSL Containers SDK not found — showing demo data (install Microsoft.WSL.Containers / WSL ≥ 2.9.3)",
+    engine_missing: "wslcsdk.dll not found on this PC — showing demo data. Install/update WSL (`wsl --update`) or put the system SDK directory on PATH.",
+    engine_missing_components: "WSL Containers runtime incomplete ({err}). Run `wsl --install` / `wsl --update`, then reboot if prompted.",
+    engine_sdk_outdated: "System wslcsdk.dll is too old for this WSL. Update WSL (`wsl --update`) or refresh the SDK on PATH, then reopen the app.",
 };
 
 pub static ZH: Strings = Strings {
@@ -293,7 +297,9 @@ pub static ZH: Strings = Strings {
 
     engine_connected: "已通过 WSL Containers SDK {bin} 连接",
     engine_unusable: "SDK 不可用（{err}）；使用演示数据",
-    engine_missing: "未找到 WSL Containers SDK — 显示演示数据（请安装 Microsoft.WSL.Containers / WSL ≥ 2.9.3）",
+    engine_missing: "本机未找到 wslcsdk.dll — 显示演示数据。请安装/更新 WSL（`wsl --update`），或将系统 SDK 目录加入 PATH。",
+    engine_missing_components: "WSL Containers 运行时不完整（{err}）。请执行 `wsl --install` / `wsl --update`，必要时重启。",
+    engine_sdk_outdated: "系统 wslcsdk.dll 过旧，与当前 WSL 不匹配。请 `wsl --update` 或更新 PATH 中的 SDK 后重开应用。",
 };
 
 pub fn fmt1(template: &str, key: &str, value: impl AsRef<str>) -> String {

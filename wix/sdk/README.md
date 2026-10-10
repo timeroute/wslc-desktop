@@ -1,11 +1,12 @@
-# Bundled WSL Containers SDK
+# SDK staging (optional, local dev only)
 
-`wslcsdk.dll` is **not** committed here. Before `cargo wix`, stage the win-x64 native runtime:
+The MSI **does not** bundle `wslcsdk.dll`. LIVE mode loads the host copy from
+WSL install directories or `PATH`.
+
+For local `cargo run` without a system SDK:
 
 ```powershell
 .\scripts\fetch-wslc-sdk.ps1
+$env:PATH = "$(Resolve-Path .\.wslc-sdk\native);$env:PATH"
+cargo run
 ```
-
-This downloads [Microsoft.WSL.Containers](https://www.nuget.org/packages/Microsoft.WSL.Containers) (default `2.9.3`, override with `$env:WSLC_SDK_VERSION`) into `wix\sdk\win-x64\`, which WiX installs beside `wslc-desktop.exe` so `LoadLibrary("wslcsdk.dll")` succeeds without a PATH entry.
-
-GitHub Actions runs the same script before packaging.

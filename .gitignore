@@ -21,6 +21,5 @@ Thumbs.db
 /tmp/
 *.log
 
-# Staged Microsoft.WSL.Containers native DLL (fetched by scripts/fetch-wslc-sdk.ps1)
+# Optional local SDK staging (scripts/fetch-wslc-sdk.ps1)
 /.wslc-sdk/
-/wix/sdk/win-x64/

@@ -13,6 +13,8 @@ use anyhow::{anyhow, Result};
 
 #[cfg(windows)]
 mod live;
+#[cfg(windows)]
+mod syspath;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)] // `Live` is constructed on Windows SDK builds.
@@ -234,10 +236,13 @@ impl WslcClient {
     pub fn detect() -> Self {
         #[cfg(windows)]
         {
+            // Prefer the host WSL / PATH copy of wslcsdk.dll (never ship our own).
+            syspath::prepare_sdk_search_path();
             match live::spawn_worker() {
                 Ok((tx, version)) => Self::from_backend(Backend::Live { tx, version }),
                 Err(detail) => Self::from_backend(Backend::Demo {
-                    detail: classify_demo_detail(&detail),
+                    // Keep the real failure reason in the status bar.
+                    detail,
                 }),
             }
         }
@@ -533,21 +538,6 @@ impl WslcClient {
                 });
             }
         }
-    }
-}
-
-/// Empty detail → show the generic “SDK missing” i18n string.
-#[allow(dead_code)] // only referenced from the Windows `detect` path
-fn classify_demo_detail(detail: &str) -> String {
-    let lower = detail.to_ascii_lowercase();
-    if lower.contains("sdk not found")
-        || lower.contains("unsupported platform")
-        || lower.contains("missing wsl components")
-        || lower.contains("wslcsdk.dll")
-    {
-        String::new()
-    } else {
-        detail.to_string()
     }
 }
 
