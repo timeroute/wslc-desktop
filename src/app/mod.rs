@@ -65,6 +65,7 @@ pub struct AppView {
     session_prefs: SessionPrefs,
     pull_modal_open: bool,
     create_modal_open: bool,
+    volume_modal_open: bool,
     logs_modal_open: bool,
     logs_title: SharedString,
     logs_text: SharedString,
@@ -157,6 +158,7 @@ impl AppView {
             session_prefs,
             pull_modal_open: false,
             create_modal_open: false,
+            volume_modal_open: false,
             logs_modal_open: false,
             logs_title: SharedString::default(),
             logs_text: SharedString::default(),
@@ -236,6 +238,9 @@ impl Render for AppView {
             .when(self.create_modal_open, |root| {
                 root.child(self.render_create_modal(cx))
             })
+            .when(self.volume_modal_open, |root| {
+                root.child(self.render_volume_modal(cx))
+            })
             .when(self.logs_modal_open, |root| root.child(self.render_logs_modal(cx)))
             .when(self.exec_modal_open, |root| root.child(self.render_exec_modal(cx)))
             .when(self.confirm.is_some(), |root| {
@@ -245,6 +250,7 @@ impl Render for AppView {
                 self.busy
                     && !show_setup
                     && !self.pull_modal_open
+                    && !self.volume_modal_open
                     && !self.exec_modal_open
                     && self.confirm.is_none(),
                 |root| root.child(self.render_busy_overlay(cx)),

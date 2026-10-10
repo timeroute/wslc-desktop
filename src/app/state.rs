@@ -1,7 +1,7 @@
 use gpui_kit::*;
 
 use crate::i18n::Strings;
-use crate::wslc::{ContainerInfo, ImageInfo, VolumeInfo};
+use crate::wslc::ContainerInfo;
 
 pub(crate) const MAX_PULL_LOG_LINES: usize = 400;
 pub(crate) const MAX_SDK_LOG_LINES: usize = 500;
@@ -82,6 +82,7 @@ impl super::AppView {
             || self.logs_modal_open
             || self.exec_modal_open
             || self.confirm.is_some()
+            || self.volume_modal_open
             || (self.create_modal_open && self.busy)
     }
 
@@ -91,19 +92,6 @@ impl super::AppView {
         } else {
             item.name.clone()
         }
-    }
-
-    pub(crate) fn selected_container(&self) -> Option<&ContainerInfo> {
-        self.selected_container
-            .and_then(|i| self.containers.get(i))
-    }
-
-    pub(crate) fn selected_image(&self) -> Option<&ImageInfo> {
-        self.selected_image.and_then(|i| self.images.get(i))
-    }
-
-    pub(crate) fn selected_volume(&self) -> Option<&VolumeInfo> {
-        self.selected_volume.and_then(|i| self.volumes.get(i))
     }
 
     pub(crate) fn t(&self) -> &'static Strings {

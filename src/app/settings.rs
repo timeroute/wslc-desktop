@@ -11,6 +11,7 @@ use gpui_kit::*;
 use crate::i18n::Locale;
 use crate::wslc::{SessionPrefs, WslcClient};
 
+use super::widgets::settings_card;
 use super::AppView;
 
 const CPU_CHOICES: [u32; 5] = [1, 2, 4, 6, 8];
@@ -36,157 +37,146 @@ impl AppView {
         let cpu = self.session_prefs.cpu_count;
         let memory = self.session_prefs.memory_mb;
 
-        v_flex()
+        div()
+            .id("settings-panel")
             .size_full()
-            .gap_6()
-            .max_w(px(560.))
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(t.settings_intro),
-            )
+            .min_h_0()
+            .overflow_y_scroll()
             .child(
                 v_flex()
-                    .gap_3()
-                    .p_4()
-                    .rounded(cx.theme().radius)
-                    .border_1()
-                    .border_color(cx.theme().border)
-                    .bg(cx.theme().secondary.opacity(0.28))
-                    .child(div().font_medium().text_sm().child(t.language))
+                    .gap_6()
+                    .max_w(px(560.))
+                    .pb_6()
                     .child(
                         div()
-                            .text_xs()
+                            .text_sm()
                             .text_color(cx.theme().muted_foreground)
-                            .child(t.language_hint),
+                            .child(t.settings_intro),
                     )
                     .child(
-                        h_flex()
-                            .gap_2()
+                        settings_card(cx)
+                            .child(div().font_medium().text_sm().child(t.language))
                             .child(
-                                Button::new("lang-zh")
-                                    .small()
-                                    .label(Locale::Zh.label())
-                                    .when(locale == Locale::Zh, |b| b.primary())
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.apply_locale(Locale::Zh, window, cx);
-                                    })),
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(t.language_hint),
                             )
                             .child(
-                                Button::new("lang-en")
-                                    .small()
-                                    .label(Locale::En.label())
-                                    .when(locale == Locale::En, |b| b.primary())
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.apply_locale(Locale::En, window, cx);
-                                    })),
+                                h_flex()
+                                    .gap_2()
+                                    .child(
+                                        Button::new("lang-zh")
+                                            .small()
+                                            .label(Locale::Zh.label())
+                                            .when(locale == Locale::Zh, |b| b.primary())
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.apply_locale(Locale::Zh, window, cx);
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("lang-en")
+                                            .small()
+                                            .label(Locale::En.label())
+                                            .when(locale == Locale::En, |b| b.primary())
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.apply_locale(Locale::En, window, cx);
+                                            })),
+                                    ),
                             ),
-                    ),
-            )
-            .child(
-                v_flex()
-                    .gap_3()
-                    .p_4()
-                    .rounded(cx.theme().radius)
-                    .border_1()
-                    .border_color(cx.theme().border)
-                    .bg(cx.theme().secondary.opacity(0.28))
-                    .child(div().font_medium().text_sm().child(t.theme))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(t.theme_hint),
                     )
                     .child(
-                        h_flex()
-                            .gap_2()
+                        settings_card(cx)
+                            .child(div().font_medium().text_sm().child(t.theme))
                             .child(
-                                Button::new("theme-dark")
-                                    .small()
-                                    .label(t.theme_dark)
-                                    .when(theme_mode == ThemeMode::Dark, |b| b.primary())
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.apply_theme(ThemeMode::Dark, window, cx);
-                                    })),
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(t.theme_hint),
                             )
                             .child(
-                                Button::new("theme-light")
-                                    .small()
-                                    .label(t.theme_light)
-                                    .when(theme_mode == ThemeMode::Light, |b| b.primary())
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.apply_theme(ThemeMode::Light, window, cx);
-                                    })),
+                                h_flex()
+                                    .gap_2()
+                                    .child(
+                                        Button::new("theme-dark")
+                                            .small()
+                                            .label(t.theme_dark)
+                                            .when(theme_mode == ThemeMode::Dark, |b| b.primary())
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.apply_theme(ThemeMode::Dark, window, cx);
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("theme-light")
+                                            .small()
+                                            .label(t.theme_light)
+                                            .when(theme_mode == ThemeMode::Light, |b| b.primary())
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.apply_theme(ThemeMode::Light, window, cx);
+                                            })),
+                                    ),
                             ),
-                    ),
-            )
-            .child(
-                v_flex()
-                    .gap_3()
-                    .p_4()
-                    .rounded(cx.theme().radius)
-                    .border_1()
-                    .border_color(cx.theme().border)
-                    .bg(cx.theme().secondary.opacity(0.28))
-                    .child(div().font_medium().text_sm().child(t.settings_session))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(t.settings_session_hint),
                     )
                     .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(t.settings_cpu),
-                    )
-                    .child(
-                        h_flex().gap_2().children(CPU_CHOICES.into_iter().map(|n| {
-                            Button::new(("settings-cpu", n as usize))
-                                .small()
-                                .label(n.to_string())
-                                .when(cpu == n, |b| b.primary())
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.session_prefs.cpu_count = n;
-                                    this.save_session_prefs(cx);
-                                }))
-                                .into_any_element()
-                        })),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(t.settings_memory),
-                    )
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .children(MEMORY_CHOICES_MB.into_iter().map(|mb| {
-                                Button::new(("settings-mem", mb as usize))
-                                    .small()
-                                    .label(format!("{} MiB", mb))
-                                    .when(memory == mb, |b| b.primary())
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.session_prefs.memory_mb = mb;
-                                        this.save_session_prefs(cx);
-                                    }))
-                                    .into_any_element()
-                            })),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(format!(
-                                "{} · {} CPU · {} MiB",
-                                SessionPrefs::path().display(),
-                                self.session_prefs.cpu_count,
-                                self.session_prefs.memory_mb
-                            )),
+                        settings_card(cx)
+                            .child(div().font_medium().text_sm().child(t.settings_session))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(t.settings_session_hint),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(t.settings_cpu),
+                            )
+                            .child(
+                                h_flex().gap_2().children(CPU_CHOICES.into_iter().map(|n| {
+                                    Button::new(("settings-cpu", n as usize))
+                                        .small()
+                                        .label(n.to_string())
+                                        .when(cpu == n, |b| b.primary())
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.session_prefs.cpu_count = n;
+                                            this.save_session_prefs(cx);
+                                        }))
+                                        .into_any_element()
+                                })),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(t.settings_memory),
+                            )
+                            .child(
+                                h_flex().gap_2().children(MEMORY_CHOICES_MB.into_iter().map(
+                                    |mb| {
+                                        Button::new(("settings-mem", mb as usize))
+                                            .small()
+                                            .label(format!("{} MiB", mb))
+                                            .when(memory == mb, |b| b.primary())
+                                            .on_click(cx.listener(move |this, _, _, cx| {
+                                                this.session_prefs.memory_mb = mb;
+                                                this.save_session_prefs(cx);
+                                            }))
+                                            .into_any_element()
+                                    },
+                                )),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(format!(
+                                        "{} · {} CPU · {} MiB",
+                                        SessionPrefs::path().display(),
+                                        self.session_prefs.cpu_count,
+                                        self.session_prefs.memory_mb
+                                    )),
+                            ),
                     ),
             )
     }

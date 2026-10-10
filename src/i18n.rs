@@ -104,6 +104,11 @@ pub struct Strings {
     pub no_volumes_title: &'static str,
     pub no_volumes_detail: &'static str,
 
+    pub create_volume_title: &'static str,
+    pub create_volume_intro: &'static str,
+    pub volume_name_label: &'static str,
+    pub volume_name_empty: &'static str,
+
     pub pull_image: &'static str,
     pub pull_hint: &'static str,
     pub pull_logs_placeholder: &'static str,
@@ -268,9 +273,14 @@ pub static EN: Strings = Strings {
     no_containers_title: "No containers",
     no_containers_detail: "Pull an image, create a container, then refresh.",
     no_images_title: "No images",
-    no_images_detail: "Use Pull to download an image, then refresh.",
+    no_images_detail: "Use Pull to download an image. Create or remove from each row.",
     no_volumes_title: "No volumes",
-    no_volumes_detail: "Create a VHD volume above (choose size), then refresh.",
+    no_volumes_detail: "Use Create to add a VHD volume. Remove from each row.",
+
+    create_volume_title: "Create volume",
+    create_volume_intro: "Creates a dynamic VHD in this desktop session. Pick a size, then create.",
+    volume_name_label: "Name",
+    volume_name_empty: "Volume name is empty",
 
     pull_image: "Pull image",
     pull_hint: "Enter an image reference and pull",
@@ -433,9 +443,14 @@ pub static ZH: Strings = Strings {
     no_containers_title: "暂无容器",
     no_containers_detail: "拉取镜像并创建容器后刷新。",
     no_images_title: "暂无镜像",
-    no_images_detail: "点击「拉取」下载镜像，然后刷新。",
+    no_images_detail: "点击「拉取」下载镜像。在列表行内创建容器或删除。",
     no_volumes_title: "暂无卷",
-    no_volumes_detail: "在上方创建 VHD 卷（可选容量），然后刷新。",
+    no_volumes_detail: "点击「创建」添加 VHD 卷。在列表行内删除。",
+
+    create_volume_title: "创建卷",
+    create_volume_intro: "在本桌面会话中创建动态 VHD。选择容量后创建。",
+    volume_name_label: "名称",
+    volume_name_empty: "卷名称为空",
 
     pull_image: "拉取镜像",
     pull_hint: "输入镜像引用后拉取",

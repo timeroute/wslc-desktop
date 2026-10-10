@@ -18,7 +18,9 @@ use crate::wslc::{
 use super::state::{ConfirmAction, PullPhase};
 use super::AppView;
 use super::parsing::{parse_bind_mounts, parse_named_volumes, parse_port_mappings};
-use super::widgets::{modal_panel, modal_scrim};
+use super::widgets::{
+    list_header, modal_panel, modal_scrim, resource_list, resource_row, row_actions,
+};
 
 impl AppView {
     pub(crate) fn reset_create_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -271,25 +273,7 @@ impl AppView {
         let mounts_label = t.bind_mounts_label;
         let ops_off = self.ops_disabled();
 
-        div()
-            .id(("container-row", index))
-            .w_full()
-            .px_3()
-            .py_2()
-            .rounded(cx.theme().radius)
-            .border_1()
-            .border_color(if selected {
-                cx.theme().border
-            } else {
-                cx.theme().transparent
-            })
-            .bg(if selected {
-                cx.theme().accent.opacity(0.12)
-            } else {
-                cx.theme().transparent
-            })
-            .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
-            .cursor_pointer()
+        resource_row(("container-row", index), selected, cx)
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.selected_container = Some(index);
                 cx.notify();
@@ -372,10 +356,7 @@ impl AppView {
                             ),
                     )
                     .child(
-                        h_flex()
-                            .gap_1()
-                            .flex_shrink_0()
-                            .occlude()
+                        row_actions()
                             .child(
                                 Button::new(("container-start", index))
                                     .small()
@@ -494,154 +475,65 @@ impl AppView {
         v_flex()
             .size_full()
             .gap_3()
-            .child(
+            .child(list_header(
+                self.muted_count(
+                    i18n::fmt2(
+                        t.containers_count,
+                        "total",
+                        self.containers.len().to_string(),
+                        "running",
+                        running_count.to_string(),
+                    ),
+                    cx,
+                ),
                 h_flex()
-                    .items_center()
-                    .justify_between()
+                    .gap_2()
                     .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(i18n::fmt2(
-                                t.containers_count,
-                                "total",
-                                self.containers.len().to_string(),
-                                "running",
-                                running_count.to_string(),
-                            )),
+                        Button::new("create-container")
+                            .small()
+                            .primary()
+                            .label(t.create)
+                            .icon(IconName::Plus)
+                            .disabled(self.ops_disabled())
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_create_modal(None, window, cx);
+                            })),
                     )
                     .child(
-                        h_flex()
-                            .gap_2()
-                            .child(
-                                Button::new("create-container")
-                                    .small()
-                                    .primary()
-                                    .label(t.create)
-                                    .icon(IconName::Plus)
-                                    .disabled(self.ops_disabled())
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.open_create_modal(None, window, cx);
-                                    })),
-                            )
-                            .child(
-                                Button::new("toggle-all")
-                                    .small()
-                                    .label(if self.show_all_containers {
-                                        t.all
-                                    } else {
-                                        t.running
-                                    })
-                                    .disabled(self.ops_disabled())
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.show_all_containers = !this.show_all_containers;
-                                        this.refresh(cx);
-                                    })),
-                            )
-                            .child(
-                                Button::new("start-selected")
-                                    .small()
-                                    .primary()
-                                    .label(t.start)
-                                    .disabled(
-                                        self.ops_disabled()
-                                            || self
-                                                .selected_container()
-                                                .is_none_or(|c| c.is_running()),
-                                    )
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        let Some(c) = this.selected_container().cloned() else {
-                                            return;
-                                        };
-                                        let key = if c.name.is_empty() {
-                                            c.id.clone()
-                                        } else {
-                                            c.name.clone()
-                                        };
-                                        let template = this.t().started;
-                                        this.with_busy(cx, move |client| {
-                                            client.start_container(&key)?;
-                                            Ok(i18n::fmt1(template, "name", &key))
-                                        });
-                                    })),
-                            )
-                            .child(
-                                Button::new("stop-selected")
-                                    .small()
-                                    .label(t.stop)
-                                    .disabled(
-                                        self.ops_disabled()
-                                            || self
-                                                .selected_container()
-                                                .is_none_or(|c| !c.is_running()),
-                                    )
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        let Some(c) = this.selected_container().cloned() else {
-                                            return;
-                                        };
-                                        let key = if c.name.is_empty() {
-                                            c.id.clone()
-                                        } else {
-                                            c.name.clone()
-                                        };
-                                        let template = this.t().stopped;
-                                        this.with_busy(cx, move |client| {
-                                            client.stop_container(&key)?;
-                                            Ok(i18n::fmt1(template, "name", &key))
-                                        });
-                                    })),
-                            )
-                            .child(
-                                Button::new("remove-selected")
-                                    .small()
-                                    .danger()
-                                    .label(t.remove)
-                                    .disabled(
-                                        self.ops_disabled() || self.selected_container().is_none(),
-                                    )
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        let Some(c) = this.selected_container().cloned() else {
-                                            return;
-                                        };
-                                        let key = Self::container_key(&c);
-                                        let label = if c.name.is_empty() {
-                                            c.id.chars().take(12).collect::<String>()
-                                        } else {
-                                            c.name.clone()
-                                        };
-                                        this.request_confirm(
-                                            ConfirmAction::RemoveContainer { key, label },
-                                            cx,
-                                        );
-                                    })),
-                            ),
+                        Button::new("toggle-all")
+                            .small()
+                            .label(if self.show_all_containers {
+                                t.all
+                            } else {
+                                t.running
+                            })
+                            .disabled(self.ops_disabled())
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.show_all_containers = !this.show_all_containers;
+                                this.refresh(cx);
+                            })),
                     ),
-            )
+            ))
             .child(
-                div()
-                    .id("container-list")
-                    .flex_1()
-                    .w_full()
-                    .overflow_y_scroll()
-                    .child({
-                        if self.containers.is_empty() {
-                            v_flex().gap_1().w_full().child(self.empty_state(
-                                t.no_containers_title,
-                                t.no_containers_detail,
-                                cx,
-                            ))
-                        } else {
-                            let rows: Vec<_> = self
-                                .containers
-                                .iter()
-                                .enumerate()
-                                .map(|(index, item)| {
-                                    self.render_container_row(index, item, cx).into_any_element()
-                                })
-                                .collect();
-                            v_flex().gap_1().w_full().children(rows)
-                        }
-                    }),
+                resource_list("container-list").child({
+                    if self.containers.is_empty() {
+                        v_flex().gap_1().w_full().child(self.empty_state(
+                            t.no_containers_title,
+                            t.no_containers_detail,
+                            cx,
+                        ))
+                    } else {
+                        let rows: Vec<_> = self
+                            .containers
+                            .iter()
+                            .enumerate()
+                            .map(|(index, item)| {
+                                self.render_container_row(index, item, cx).into_any_element()
+                            })
+                            .collect();
+                        v_flex().gap_1().w_full().children(rows)
+                    }
+                }),
             )
     }
     pub(crate) fn render_create_modal(&self, cx: &mut Context<Self>) -> impl IntoElement {

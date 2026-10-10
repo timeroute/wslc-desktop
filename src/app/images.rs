@@ -21,7 +21,9 @@ use crate::wslc::{
 use super::state::{ConfirmAction, PullPhase, MAX_PULL_LOG_LINES};
 use super::AppView;
 use super::poll::recv_all;
-use super::widgets::{modal_panel, modal_scrim};
+use super::widgets::{
+    list_header, modal_panel, modal_scrim, resource_list, resource_row, row_actions,
+};
 
 impl AppView {
     pub(crate) fn open_pull_modal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -188,30 +190,14 @@ impl AppView {
         item: &ImageInfo,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        let t = self.t();
         let selected = self.selected_image == Some(index);
         let reference = item.reference();
         let id_short = item.id.chars().take(16).collect::<String>();
         let meta = format!("{} · {}", item.size, item.created);
+        let ops_off = self.ops_disabled();
 
-        div()
-            .id(("image-row", index))
-            .w_full()
-            .px_3()
-            .py_2()
-            .rounded(cx.theme().radius)
-            .border_1()
-            .border_color(if selected {
-                cx.theme().border
-            } else {
-                cx.theme().transparent
-            })
-            .bg(if selected {
-                cx.theme().accent.opacity(0.12)
-            } else {
-                cx.theme().transparent
-            })
-            .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
-            .cursor_pointer()
+        resource_row(("image-row", index), selected, cx)
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.selected_image = Some(index);
                 cx.notify();
@@ -227,13 +213,52 @@ impl AppView {
                             .flex_1()
                             .min_w_0()
                             .gap_0p5()
-                            .child(div().font_medium().text_sm().child(reference))
+                            .child(div().font_medium().text_sm().child(reference.clone()))
                             .child(
                                 div()
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
                                     .truncate()
                                     .child(format!("{id_short} · {meta}")),
+                            ),
+                    )
+                    .child(
+                        row_actions()
+                            .child(
+                                Button::new(("image-create", index))
+                                    .small()
+                                    .label(t.create)
+                                    .disabled(ops_off)
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.selected_image = Some(index);
+                                        let Some(img) = this.images.get(index).cloned() else {
+                                            return;
+                                        };
+                                        this.open_create_modal(
+                                            Some(img.reference()),
+                                            window,
+                                            cx,
+                                        );
+                                    })),
+                            )
+                            .child(
+                                Button::new(("image-remove", index))
+                                    .small()
+                                    .danger()
+                                    .label(t.remove)
+                                    .disabled(ops_off)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.selected_image = Some(index);
+                                        let Some(img) = this.images.get(index).cloned() else {
+                                            return;
+                                        };
+                                        this.request_confirm(
+                                            ConfirmAction::RemoveImage {
+                                                reference: img.reference(),
+                                            },
+                                            cx,
+                                        );
+                                    })),
                             ),
                     ),
             )
@@ -361,95 +386,41 @@ impl AppView {
         v_flex()
             .size_full()
             .gap_3()
+            .child(list_header(
+                self.muted_count(
+                    i18n::fmt1(t.images_count, "count", self.images.len().to_string()),
+                    cx,
+                ),
+                Button::new("open-pull-modal")
+                    .small()
+                    .primary()
+                    .label(t.pull)
+                    .icon(IconName::ArrowDown)
+                    .disabled(self.ops_disabled())
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.open_pull_modal(window, cx);
+                    })),
+            ))
             .child(
-                h_flex()
-                    .items_center()
-                    .justify_between()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(i18n::fmt1(
-                                t.images_count,
-                                "count",
-                                self.images.len().to_string(),
-                            )),
-                    )
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .child(
-                                Button::new("open-pull-modal")
-                                    .small()
-                                    .primary()
-                                    .label(t.pull)
-                                    .icon(IconName::ArrowDown)
-                                    .disabled(self.ops_disabled())
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.open_pull_modal(window, cx);
-                                    })),
-                            )
-                            .child(
-                                Button::new("create-from-image")
-                                    .small()
-                                    .label(t.create)
-                                    .disabled(
-                                        self.ops_disabled() || self.selected_image().is_none(),
-                                    )
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        let Some(img) = this.selected_image().cloned() else {
-                                            return;
-                                        };
-                                        let reference = img.reference();
-                                        this.open_create_modal(Some(reference), window, cx);
-                                    })),
-                            )
-                            .child(
-                                Button::new("remove-image")
-                                    .small()
-                                    .danger()
-                                    .label(t.remove)
-                                    .disabled(
-                                        self.ops_disabled() || self.selected_image().is_none(),
-                                    )
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        let Some(img) = this.selected_image().cloned() else {
-                                            return;
-                                        };
-                                        let reference = img.reference();
-                                        this.request_confirm(
-                                            ConfirmAction::RemoveImage { reference },
-                                            cx,
-                                        );
-                                    })),
-                            ),
-                    ),
-            )
-            .child(
-                div()
-                    .id("image-list")
-                    .flex_1()
-                    .w_full()
-                    .overflow_y_scroll()
-                    .child({
-                        if self.images.is_empty() {
-                            v_flex().gap_1().w_full().child(self.empty_state(
-                                t.no_images_title,
-                                t.no_images_detail,
-                                cx,
-                            ))
-                        } else {
-                            let rows: Vec<_> = self
-                                .images
-                                .iter()
-                                .enumerate()
-                                .map(|(index, item)| {
-                                    self.render_image_row(index, item, cx).into_any_element()
-                                })
-                                .collect();
-                            v_flex().gap_1().w_full().children(rows)
-                        }
-                    }),
+                resource_list("image-list").child({
+                    if self.images.is_empty() {
+                        v_flex().gap_1().w_full().child(self.empty_state(
+                            t.no_images_title,
+                            t.no_images_detail,
+                            cx,
+                        ))
+                    } else {
+                        let rows: Vec<_> = self
+                            .images
+                            .iter()
+                            .enumerate()
+                            .map(|(index, item)| {
+                                self.render_image_row(index, item, cx).into_any_element()
+                            })
+                            .collect();
+                        v_flex().gap_1().w_full().children(rows)
+                    }
+                }),
             )
     }
 }
