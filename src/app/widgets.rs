@@ -1,5 +1,4 @@
 use gpui_kit::component::{ActiveTheme, StyledExt as _, v_flex};
-use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::AppView;

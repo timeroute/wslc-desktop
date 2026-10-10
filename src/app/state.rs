@@ -1,6 +1,6 @@
 use gpui_kit::*;
 
-use crate::i18n::{Locale, Strings};
+use crate::i18n::Strings;
 use crate::wslc::{ContainerInfo, ImageInfo, VolumeInfo};
 
 pub(crate) const MAX_PULL_LOG_LINES: usize = 400;

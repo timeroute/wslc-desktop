@@ -1,28 +1,22 @@
-use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
 use gpui_kit::component::{
-    ActiveTheme, Disableable as _, Icon, IconName, Selectable as _, Sizable as _, StyledExt as _,
-    Theme, ThemeMode, TitleBar,
+    ActiveTheme, IconName, StyledExt as _,
     button::{Button, ButtonVariants as _},
     h_flex,
-    input::{Input, InputState},
-    label::Label,
     progress::Progress,
-    sidebar::{Sidebar, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuItem},
     v_flex,
 };
 use gpui_kit::prelude::{FluentBuilder as _, InteractiveElement as _};
 use gpui_kit::*;
 use smol::Timer;
 
-use crate::i18n::{self, Locale, Strings};
+use crate::i18n::{self};
 use crate::wslc::{
-    BackendKind, ContainerInfo, CreateContainerRequest, EngineStatus, ImageInfo, PortMapping,
-    PullEvent, SdkSetupEvent, VolumeInfo, VolumeMapping, WslcClient,
+    EngineStatus, SdkSetupEvent, WslcClient,
 };
 
-use super::state::{PullPhase, SdkSetupPhase, Section, MAX_PULL_LOG_LINES, MAX_SDK_LOG_LINES};
+use super::state::{SdkSetupPhase, MAX_SDK_LOG_LINES};
 use super::AppView;
 use super::poll::recv_all;
 use super::widgets::{modal_panel, modal_scrim};

@@ -1,28 +1,15 @@
-use std::sync::mpsc::Receiver;
-use std::time::Duration;
 
 use gpui_kit::component::{
-    ActiveTheme, Disableable as _, Icon, IconName, Selectable as _, Sizable as _, StyledExt as _,
-    Theme, ThemeMode, TitleBar,
-    button::{Button, ButtonVariants as _},
-    h_flex,
-    input::{Input, InputState},
-    label::Label,
-    progress::Progress,
-    sidebar::{Sidebar, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuItem},
-    v_flex,
+    Theme, ThemeMode,
 };
-use gpui_kit::prelude::{FluentBuilder as _, InteractiveElement as _};
 use gpui_kit::*;
-use smol::Timer;
 
-use crate::i18n::{self, Locale, Strings};
+use crate::i18n::{self, Locale};
 use crate::wslc::{
-    BackendKind, ContainerInfo, CreateContainerRequest, EngineStatus, ImageInfo, PortMapping,
-    PullEvent, SdkSetupEvent, VolumeInfo, VolumeMapping, WslcClient,
+    BackendKind, EngineStatus, WslcClient,
 };
 
-use super::state::{PullPhase, SdkSetupPhase, Section, MAX_PULL_LOG_LINES, MAX_SDK_LOG_LINES};
+use super::state::PullPhase;
 use super::AppView;
 
 impl AppView {
