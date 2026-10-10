@@ -741,71 +741,27 @@ impl LiveState {
 
     fn container_logs(&self, key: &str) -> Result<String> {
         let tracked = self.find_container(key)?;
-        // WSLC Rust SDK has no Logs API yet; collect runtime log files via exec.
-        // Never dump inspect JSON here — that is metadata, not container output.
-        let script = r#"set +e
-found=0
-# Common application / system log paths inside the container.
-for f in \
-  /var/log/nginx/access.log /var/log/nginx/error.log \
-  /var/log/apache2/access.log /var/log/apache2/error.log \
-  /var/log/httpd/access_log /var/log/httpd/error_log \
-  /var/log/containers/*.log /var/log/*.log \
-  /app/*.log /tmp/*.log /var/log/syslog /var/log/messages
-do
-  [ -f "$f" ] || continue
-  echo "===== $f ====="
-  tail -n 200 "$f" 2>/dev/null
-  echo
-  found=1
-done
-# Fall back to any readable files under /var/log (depth-limited).
-if [ "$found" -eq 0 ]; then
-  while IFS= read -r f; do
-    [ -f "$f" ] || continue
-    echo "===== $f ====="
-    tail -n 100 "$f" 2>/dev/null
-    echo
-    found=1
-  done <<EOF
-$(find /var/log -type f \( -name '*.log' -o -name '*log' \) 2>/dev/null | head -n 20)
-EOF
-fi
-if [ "$found" -eq 0 ]; then
-  echo "(no log files found under common paths)"
-  echo
-  echo "===== pid 1 ====="
-  if [ -r /proc/1/cmdline ]; then
-    tr '\0' ' ' < /proc/1/cmdline 2>/dev/null
-    echo
-  fi
-  (ps aux 2>/dev/null || ps -ef 2>/dev/null | head -n 30)
-fi
-"#;
-        match tracked.handle.exec(
-            wslc::ProcessOptions::new(["/bin/sh", "-c", script])
-                .capture_stdout()
-                .capture_stderr(),
-        ) {
-            Ok(proc) => match proc.wait_with_output() {
-                Ok(out) => {
-                    let mut body = String::from_utf8_lossy(&out.stdout).into_owned();
-                    let err = String::from_utf8_lossy(&out.stderr);
-                    if !err.trim().is_empty() {
-                        if !body.is_empty() {
-                            body.push('\n');
-                        }
-                        body.push_str(&err);
+        // Forked wslc-rs exposes Logs via `wslc --session <name> container logs`
+        // (public C SDK still has no Logs export). Do not use follow — UI call is
+        // synchronous. Override CLI with WSLC_CLI_PATH when needed.
+        let options = wslc::LogsOptions::new().tail(200).timestamps(true);
+        match tracked.handle.logs(options) {
+            Ok(logs) => {
+                let mut body = logs.stdout_lossy().into_owned();
+                let err = logs.stderr_lossy();
+                if !err.trim().is_empty() {
+                    if !body.is_empty() {
+                        body.push('\n');
                     }
-                    if body.trim().is_empty() {
-                        Ok("(no runtime log output)".into())
-                    } else {
-                        Ok(body)
-                    }
+                    body.push_str(&err);
                 }
-                Err(err) => Err(anyhow!("wait for log collector failed: {err}")),
-            },
-            Err(err) => Err(anyhow!("exec log collector failed: {err}")),
+                if body.trim().is_empty() {
+                    Ok("(no container log output)".into())
+                } else {
+                    Ok(body)
+                }
+            }
+            Err(err) => Err(anyhow!("container logs failed: {err}")),
         }
     }
 

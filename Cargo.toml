@@ -31,9 +31,10 @@ sys-locale = "0.3"
 # Official WSL Containers SDK bindings (`wslcsdk.dll`). Windows host only.
 # ureq/zip: download matching Microsoft.WSL.Containers native DLL at runtime.
 [target.'cfg(windows)'.dependencies]
-# Vendored from timeroute/wslc-rs (+ named_volume). Switch to crates.io when upstream publishes
-# OpenContainer / Logs / named volumes.
-wslc = { path = "vendor/wslc-rs/crates/wslc" }
+# Own fork of wslc-rs (OpenContainer / Logs / named volumes / extra SDK exports).
+# Bump `rev` after pushing patches to https://github.com/timeroute/wslc-rs .
+# Prefer git over vendor so desktop tracks the fork tip without copying the tree.
+wslc = { git = "https://github.com/timeroute/wslc-rs", rev = "b808bab0f4ce2d994df2ba90d90c4418243537ee" }
 ureq = { version = "2.12", default-features = true, features = ["json"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
