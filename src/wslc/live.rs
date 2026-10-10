@@ -12,6 +12,7 @@ use super::{
     PortMapping, PullEvent, VolumeInfo, VolumeMapping,
 };
 
+const SESSION_NAME: &str = "wslc-desktop";
 const DEFAULT_VOLUME_BYTES: u64 = 1024 * 1024 * 1024; // 1 GiB
 const STOP_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -254,8 +255,16 @@ impl LiveState {
         let version = wslc::Service::version().map_err(|e| anyhow!("{e}"))?;
         let version = format!("{}.{}.{}", version.major, version.minor, version.revision);
 
-        // Same session the `wslc` CLI uses (null SessionSettings server-side).
-        let session = wslc::Session::open_default().map_err(|e| anyhow!("{e}"))?;
+        // Dedicated desktop session — not shared with the `wslc` CLI.
+        let path = storage_path();
+        std::fs::create_dir_all(&path)
+            .map_err(|e| anyhow!("failed to create session storage {}: {e}", path.display()))?;
+
+        let session = wslc::Session::builder(SESSION_NAME, path)
+            .cpu_count(2)
+            .memory_mb(2048)
+            .start()
+            .map_err(|e| anyhow!("{e}"))?;
 
         Ok(Self {
             session,
@@ -270,10 +279,7 @@ impl LiveState {
             backend: BackendKind::Live,
             binary: "wslcsdk".into(),
             version: self.version.clone(),
-            message: format!(
-                "Connected via WSL Containers SDK {} (default CLI session)",
-                self.version
-            ),
+            message: format!("Connected via WSL Containers SDK {}", self.version),
         }
     }
 
@@ -586,9 +592,17 @@ impl LiveState {
     }
 
     fn shutdown(self) {
-        // Default CLI session must stay alive for `wslc` — only release our handle.
-        drop(self.session);
+        let _ = self.session.terminate();
     }
+}
+
+fn storage_path() -> PathBuf {
+    // Dedicated directory: WSLC rejects non-empty storage roots.
+    // SDK downloads live under `%LOCALAPPDATA%\WSLcDesktop\sdk\` — keep session data apart.
+    let base = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\WslcData"));
+    base.join("WSLcDesktop").join("session")
 }
 
 fn parse_ports_from_inspect(container: &wslc::Container) -> String {

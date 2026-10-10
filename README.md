@@ -2,14 +2,14 @@
 
 面向 Windows **WSL Containers（WSLc）** 的轻量级桌面管理器，基于 [GPUI Kit](https://gpui-kit.com)（Zed GPUI + 组件库）构建。
 
-通过官方 **WSL Containers SDK**（Rust crate [`wslc`](https://crates.io/crates/wslc)，仓库内 `vendor/wslc` 增加了 `Session::open_default()`）浏览与管理容器、镜像与 VHD 卷。应用打开的是与 **`wslc` CLI 相同的默认会话**（服务端 null settings → `wslc-cli-<用户名>`），因此 `wslc image ls` 里的镜像会出现在本应用中。MSI **不捆绑** DLL：首次启动以**阻塞弹窗**安装/更新 SDK；Live 失败则保持锁定直至重试成功或自行修好 WSL。
+通过官方 **WSL Containers SDK**（Rust crate [`wslc`](https://crates.io/crates/wslc)）浏览与管理容器、镜像与 VHD 卷。应用使用**独立会话** `wslc-desktop`（数据在 `%LOCALAPPDATA%\WSLcDesktop\session\`），与 `wslc` CLI 会话隔离——桌面端镜像/容器需在本应用内拉取与创建。MSI **不捆绑** DLL：首次启动以**阻塞弹窗**安装/更新 SDK 到 `%LOCALAPPDATA%\WSLcDesktop\sdk\`；Live 失败则保持锁定直至重试成功或自行修好 WSL。
 
 ## 功能
 
 - **Containers**：创建容器弹窗（镜像、名称、端口映射、卷映射、退出后删除、额外命令）；列表展示状态 / 端口 / 卷 / auto-remove；Start / Stop / Remove / 日志弹窗
 - **Images**：拉取镜像弹窗（进度 + 日志，拉取时锁定 UI）；列表；从此创建容器或删除
 - **Volumes**：创建 / 删除会话 VHD 卷（默认 1 GiB 动态盘；C SDK 无 list API，应用内跟踪）
-- **引擎状态**：LIVE（默认 CLI 会话）；未就绪时全屏 SDK 安装弹窗（OFF）
+- **引擎状态**：LIVE（独立 `wslc-desktop` 会话）；未就绪时全屏 SDK 安装弹窗（OFF）
 - **设置**：TitleBar 齿轮；界面语言（中文 / English）与主题（深色 / 浅色）
 
 ## 环境要求
@@ -141,20 +141,19 @@ src/
   main.rs            # 窗口启动与快捷键
   app.rs             # 侧栏导航 + TitleBar 设置按钮
   i18n.rs            # 中英文字符串与系统语言检测
-  wslc/              # SDK 封装（默认会话 Live；安装/拉取/创建进度事件）
-  vendor/wslc/       # 上游 wslc 0.1.9 + Session::open_default()
+  wslc/              # SDK 封装（独立会话 Live；安装/拉取/创建进度事件）
 ```
 
 ## 架构说明
 
 ```text
 UI (GPUI Kit) ──► SDK 安装弹窗 ──► NuGet 缓存 wslcsdk.dll
-                ──► Session::open_default()（与 wslc CLI 同一会话）
+                ──► Session "wslc-desktop"（与 CLI 隔离）
                 ──► 拉取 / 创建容器 / 日志 均为阻塞弹窗
 ```
 
-- **Images**：默认会话的 `list_images` / `pull_image` / `delete_image`
-- **Containers**：本进程跟踪的 SDK 句柄（C SDK 尚无 ListContainers；CLI 另起的容器看不到，但镜像共享）
+- **Images**：本会话 `list_images` / `pull_image` / `delete_image`
+- **Containers**：本进程跟踪的 SDK 句柄（C SDK 尚无 ListContainers）
 - **Volumes**：`create_vhd_volume` / `delete_vhd_volume`，应用内跟踪
 
 ## 许可
