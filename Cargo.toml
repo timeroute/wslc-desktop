@@ -34,7 +34,7 @@ sys-locale = "0.3"
 # Own fork of wslc-rs (OpenContainer / Logs / named volumes / extra SDK exports).
 # Bump `rev` after pushing patches to https://github.com/timeroute/wslc-rs .
 # Prefer git over vendor so desktop tracks the fork tip without copying the tree.
-wslc = { git = "https://github.com/timeroute/wslc-rs", rev = "b808bab0f4ce2d994df2ba90d90c4418243537ee" }
+wslc = { git = "https://github.com/timeroute/wslc-rs", rev = "9fbcd72f6967f79d0dc805648120eaec77364a2e" }
 ureq = { version = "2.12", default-features = true, features = ["json"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 

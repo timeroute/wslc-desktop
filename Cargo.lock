@@ -8459,7 +8459,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 [[package]]
 name = "wslc"
 version = "0.1.9"
-source = "git+https://github.com/timeroute/wslc-rs?rev=b808bab0f4ce2d994df2ba90d90c4418243537ee#b808bab0f4ce2d994df2ba90d90c4418243537ee"
+source = "git+https://github.com/timeroute/wslc-rs?rev=9fbcd72f6967f79d0dc805648120eaec77364a2e#9fbcd72f6967f79d0dc805648120eaec77364a2e"
 dependencies = [
  "wslc-sys",
 ]
@@ -8482,7 +8482,7 @@ dependencies = [
 [[package]]
 name = "wslc-sys"
 version = "0.1.2"
-source = "git+https://github.com/timeroute/wslc-rs?rev=b808bab0f4ce2d994df2ba90d90c4418243537ee#b808bab0f4ce2d994df2ba90d90c4418243537ee"
+source = "git+https://github.com/timeroute/wslc-rs?rev=9fbcd72f6967f79d0dc805648120eaec77364a2e#9fbcd72f6967f79d0dc805648120eaec77364a2e"
 
 [[package]]
 name = "x11"

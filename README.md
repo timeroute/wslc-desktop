@@ -151,14 +151,6 @@ wslc = { git = "https://github.com/timeroute/wslc-rs", rev = "<commit>" }
 
 **Logs：** fork 提供 `Container::logs(LogsOptions)` / `Session::logs(...)`。公开 C SDK 尚无 Logs 导出，实现走 `wslc --session <name> container logs`（可用 `WSLC_CLI_PATH` 覆盖可执行文件）。桌面端默认 `tail(200)` + `timestamps`，不用 `follow`（避免卡住 UI）。
 
-**建议补丁（fork 上还没有时）：** 不要把失败的 `Sdk::load` 放进 `OnceLock<Result<_>>`，否则安装弹窗 Retry 重下 DLL 后进程内仍复用旧错误。只缓存成功的 `Sdk`。可在 fork 仓库根目录执行：
-
-```powershell
-git am path\to\wslc-desktop\patches\wslc-sys-sdk-load-retryable.patch
-git push
-# 然后把桌面端 Cargo.toml 的 rev 改成新 SHA
-```
-
 ## 项目结构
 
 ```text
