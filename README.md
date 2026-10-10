@@ -110,56 +110,35 @@ cargo wix --sign
 
 GPUI 应用一般是单二进制；若运行时报缺 DLL，把对应 VC++ 运行库一并装上，或在 WiX/Inno 脚本里捆绑 redistributable。
 
-### 5. Buildkite 自动打 MSI
+### 5. GitHub Actions 自动打 MSI
 
-Origin **没有内置 Actions runner**，Windows 打包走 **Buildkite**（仓库 Apps / Marketplace 安装）。本仓库已提供：
-
-```text
-.buildkite/pipeline.yml
-.buildkite/scripts/upload-windows-msi.sh
-.buildkite/scripts/windows-msi.ps1
-.buildkite/scripts/annotate-msi-release.ps1
-```
-
-**接入步骤：**
-
-1. 在 [quentinz/wslc-desktop](https://cursor.com/codebase/quentinz/wslc-desktop) 的 Apps 里安装 **Buildkite**，创建 pipeline 指向本仓库  
-2. Pipeline 首步：`buildkite-agent pipeline upload .buildkite/pipeline.yml`  
-3. **先创建 Windows queue**（必做，否则会报 `Queue '…' does not exist`）：
-   - Buildkite → **Agents** → **Default cluster** → **Queues** → **New Queue**
-   - Key 填例如 `windows`（自建 agent 或 Hosted Windows，视组织是否开通）
-4. Pipeline **Settings → Environment Variables** 增加：
+仓库已提供 Windows runner 工作流：
 
 ```text
-WINDOWS_AGENT_QUEUE=windows
+.github/workflows/windows-msi.yml
 ```
 
-（值必须等于上一步创建的 queue key。）
+**触发：**
 
-5. Windows agent（自建）示例：
+- push / PR 到 `main`：构建 MSI，上传为 workflow artifact
+- tag `v*`：构建 MSI，并创建 GitHub Release 挂载安装包
+- 手动：Actions → **Windows MSI** → **Run workflow**
 
-```ini
-# buildkite-agent.cfg — queue 标签必须等于集群里已存在的 key
-tags="queue=windows"
-```
-
-预装：VS2022 C++、Windows SDK、CMake、Rust MSVC、（可选）Chocolatey。  
-6. 触发：push `main` / tag `v*`。发布示例：
+发布示例：
 
 ```powershell
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-成功后在构建页 **Artifacts** 下载 `target/wix/*.msi`。
+成功后可在对应 workflow run 的 **Artifacts** 下载 `wslc-desktop-msi`；打 tag 时还会出现在 **Releases**。
 
-> 入口 `pipeline.yml` 不再写死 queue，避免 upload 校验失败；真正的 MSI 步骤由 `upload-windows-msi.sh` 按 `WINDOWS_AGENT_QUEUE` 动态上传。  
-> **未设置 `WINDOWS_AGENT_QUEUE` 时会软跳过 MSI（构建仍成功）**，并在 Buildkite 页面写黄色注解；配好 queue 与环境变量后才会真正打 MSI。
+工作流在 `windows-latest` 上安装 Rust MSVC、WiX Toolset、`cargo-wix`，必要时执行 `cargo wix init`，再 `cargo wix` 产出 `target\wix\*.msi`。
 
 ## 项目结构
 
 ```text
-.buildkite/          # Buildkite Windows MSI 发布流水线
+.github/workflows/   # GitHub Actions（Windows MSI）
 src/
   main.rs            # 窗口启动、主题与快捷键
   app.rs             # 侧栏 + 分区界面

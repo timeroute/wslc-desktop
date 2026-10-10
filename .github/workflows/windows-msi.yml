@@ -1,0 +1,82 @@
+name: Windows MSI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  msi:
+    name: Build MSI (windows-msvc)
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust (MSVC)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install WiX Toolset
+        shell: pwsh
+        run: |
+          choco install wixtoolset --version 3.14.1 -y --no-progress
+          $wixBins = @(
+            "${env:ProgramFiles(x86)}\WiX Toolset v3.14\bin",
+            "${env:ProgramFiles(x86)}\WiX Toolset v3.11\bin",
+            "${env:ProgramFiles}\WiX Toolset v3.14\bin"
+          ) | Where-Object { Test-Path $_ }
+          foreach ($bin in $wixBins) {
+            echo "$bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          }
+
+      - name: Verify tools
+        shell: pwsh
+        run: |
+          rustc -vV
+          cargo -V
+          candle -?
+          light -?
+
+      - name: Install cargo-wix
+        shell: pwsh
+        run: cargo install cargo-wix --locked
+
+      - name: Init WiX project if missing
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "wix\main.wxs")) {
+            cargo wix init --force
+          }
+
+      - name: Build MSI
+        shell: pwsh
+        run: cargo wix --nocapture
+
+      - name: Upload MSI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wslc-desktop-msi
+          path: target/wix/*.msi
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/wix/*.msi
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
