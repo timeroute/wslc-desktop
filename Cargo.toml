@@ -28,6 +28,10 @@ serde_json = "1"
 smol = "2"
 sys-locale = "0.3"
 
+# Official WSL Containers SDK bindings (`wslcsdk.dll`). Windows host only.
+[target.'cfg(windows)'.dependencies]
+wslc = "0.1.9"
+
 [profile.dev.package]
 gpui-pre = { opt-level = 3 }
 gpui-component = { opt-level = 3 }

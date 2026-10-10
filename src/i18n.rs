@@ -89,7 +89,6 @@ pub struct Strings {
     pub run_intro: &'static str,
     pub image_label: &'static str,
     pub name_optional: &'static str,
-    pub cli_equivalents: &'static str,
     pub name_placeholder: &'static str,
     pub volume_placeholder: &'static str,
 
@@ -157,11 +156,11 @@ pub static EN: Strings = Strings {
     mode_demo: "demo",
 
     no_containers_title: "No containers",
-    no_containers_detail: "Run an image from the Run tab, or refresh after starting one with wslc.",
+    no_containers_detail: "Run an image from the Run tab, then refresh.",
     no_images_title: "No images",
     no_images_detail: "Type an image name above and pull it, then refresh.",
     no_volumes_title: "No volumes",
-    no_volumes_detail: "Create a named volume above, or refresh after creating one with wslc volume create.",
+    no_volumes_detail: "Create a VHD volume above (1 GiB dynamic by default), then refresh.",
 
     pull_image: "Pull image",
     pull_hint: "Enter an image reference and pull",
@@ -173,14 +172,13 @@ pub static EN: Strings = Strings {
     image_ref_empty: "Image reference is empty",
     pulled_image: "Pulled image",
 
-    run_intro: "Start a detached container through the local wslc CLI. Without WSLc, demo mode only updates the in-memory list.",
+    run_intro: "Start a detached container through the WSL Containers SDK. Without the SDK, demo mode only updates the in-memory list.",
     image_label: "Image",
     name_optional: "Name (optional)",
-    cli_equivalents: "CLI equivalents",
     name_placeholder: "optional container name",
     volume_placeholder: "my-volume",
 
-    binary_label: "binary: {name}",
+    binary_label: "sdk: {name}",
 
     pull_idle: "IDLE",
     pull_phase_pulling: "PULLING",
@@ -207,9 +205,9 @@ pub static EN: Strings = Strings {
     pulling_image: "Pulling {name}…",
     pull_failed_msg: "Pull failed: {err}",
 
-    engine_connected: "Connected via `{bin}`",
-    engine_unusable: "CLI present but unusable ({err}); using demo data",
-    engine_missing: "WSLc CLI not found — showing demo data (install WSL ≥ 2.9.3 on Windows)",
+    engine_connected: "Connected via WSL Containers SDK {bin}",
+    engine_unusable: "SDK unavailable ({err}); using demo data",
+    engine_missing: "WSL Containers SDK not found — showing demo data (install Microsoft.WSL.Containers / WSL ≥ 2.9.3)",
 };
 
 pub static ZH: Strings = Strings {
@@ -244,11 +242,11 @@ pub static ZH: Strings = Strings {
     mode_demo: "演示",
 
     no_containers_title: "暂无容器",
-    no_containers_detail: "可在「运行」页启动镜像，或用 wslc 创建后再刷新。",
+    no_containers_detail: "可在「运行」页启动镜像，然后刷新。",
     no_images_title: "暂无镜像",
     no_images_detail: "在上方输入镜像名并拉取，然后刷新。",
     no_volumes_title: "暂无卷",
-    no_volumes_detail: "在上方创建命名卷，或用 wslc volume create 创建后再刷新。",
+    no_volumes_detail: "在上方创建 VHD 卷（默认 1 GiB 动态盘），然后刷新。",
 
     pull_image: "拉取镜像",
     pull_hint: "输入镜像引用后拉取",
@@ -260,14 +258,13 @@ pub static ZH: Strings = Strings {
     image_ref_empty: "镜像引用为空",
     pulled_image: "已拉取镜像",
 
-    run_intro: "通过本机 wslc CLI 启动分离式容器。未安装 WSLc 时，演示模式仅更新内存列表。",
+    run_intro: "通过 WSL Containers SDK 启动分离式容器。未安装 SDK 时，演示模式仅更新内存列表。",
     image_label: "镜像",
     name_optional: "名称（可选）",
-    cli_equivalents: "等效 CLI 命令",
     name_placeholder: "可选容器名称",
     volume_placeholder: "我的卷",
 
-    binary_label: "二进制: {name}",
+    binary_label: "sdk: {name}",
 
     pull_idle: "空闲",
     pull_phase_pulling: "拉取中",
@@ -294,9 +291,9 @@ pub static ZH: Strings = Strings {
     pulling_image: "正在拉取 {name}…",
     pull_failed_msg: "拉取失败: {err}",
 
-    engine_connected: "已通过 `{bin}` 连接",
-    engine_unusable: "检测到 CLI 但不可用（{err}）；使用演示数据",
-    engine_missing: "未找到 WSLc CLI — 显示演示数据（请在 Windows 安装 WSL ≥ 2.9.3）",
+    engine_connected: "已通过 WSL Containers SDK {bin} 连接",
+    engine_unusable: "SDK 不可用（{err}）；使用演示数据",
+    engine_missing: "未找到 WSL Containers SDK — 显示演示数据（请安装 Microsoft.WSL.Containers / WSL ≥ 2.9.3）",
 };
 
 pub fn fmt1(template: &str, key: &str, value: impl AsRef<str>) -> String {

@@ -8406,6 +8406,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
+name = "wslc"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "67316b297a50e9f907fee39bf58ae2ddfa8c4978c167cded1f75cfdd88fdc6f2"
+dependencies = [
+ "wslc-sys",
+]
+
+[[package]]
 name = "wslc-desktop"
 version = "0.1.0"
 dependencies = [
@@ -8415,7 +8424,14 @@ dependencies = [
  "serde_json",
  "smol",
  "sys-locale",
+ "wslc",
 ]
+
+[[package]]
+name = "wslc-sys"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ef7abb662dfaa3198e7263924e0b4a7616b900ea13b47617835bf2894433c56"
 
 [[package]]
 name = "x11"

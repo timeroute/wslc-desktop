@@ -174,7 +174,7 @@ impl AppView {
         if self.pull_phase == PullPhase::Idle {
             self.pull_status = t.pull_hint.into();
         }
-        // Relocalize in-memory status only — do not re-run CLI (avoids console flashes).
+        // Relocalize in-memory status only — do not re-probe the SDK.
         self.status.message = self.localize_engine_message(&self.status);
         let mode = match self.status.backend {
             BackendKind::Live => t.mode_live,
@@ -207,14 +207,24 @@ impl AppView {
     fn localize_engine_message(&self, status: &EngineStatus) -> String {
         let t = self.t();
         match status.backend {
-            BackendKind::Live => i18n::fmt1(t.engine_connected, "bin", &status.binary),
-            BackendKind::Demo if status.binary == "demo" => t.engine_missing.to_string(),
+            BackendKind::Live => i18n::fmt1(t.engine_connected, "bin", &status.version),
+            BackendKind::Demo if status.binary == "demo"
+                && (status.message.contains("not found")
+                    || status.message.contains("SDK not found")) =>
+            {
+                t.engine_missing.to_string()
+            }
             BackendKind::Demo => {
-                // Keep the CLI error detail from the client when present.
                 let detail = status
                     .message
-                    .strip_prefix("CLI present but unusable (")
+                    .strip_prefix("SDK unavailable (")
                     .and_then(|rest| rest.strip_suffix("); using demo data"))
+                    .or_else(|| {
+                        status
+                            .message
+                            .strip_prefix("SDK session became unavailable")
+                            .map(|_| status.message.as_str())
+                    })
                     .unwrap_or(status.message.as_str());
                 i18n::fmt1(t.engine_unusable, "err", detail)
             }
@@ -336,7 +346,7 @@ impl AppView {
         let pulling = i18n::fmt1(self.t().pulling_image, "name", &reference);
         self.pull_status = pulling.clone().into();
         self.pull_logs.clear();
-        self.append_pull_log(format!("$ wslc pull {reference}"));
+        self.append_pull_log(format!("sdk pull {reference}"));
         self.status_line = pulling.into();
         self.pull_poll_generation = self.pull_poll_generation.wrapping_add(1);
         let generation = self.pull_poll_generation;
@@ -1352,41 +1362,6 @@ impl AppView {
                             this.section = Section::Containers;
                         })),
                 ),
-            )
-            .child(
-                div()
-                    .mt_4()
-                    .p_3()
-                    .rounded(cx.theme().radius)
-                    .border_1()
-                    .border_color(cx.theme().border)
-                    .bg(cx.theme().secondary.opacity(0.35))
-                    .child(
-                        v_flex()
-                            .gap_2()
-                            .child(div().font_medium().text_sm().child(t.cli_equivalents))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .font_family("monospace")
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child("wslc pull <image>"),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .font_family("monospace")
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child("wslc run -d --name <name> <image>"),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .font_family("monospace")
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child("wslc volume list"),
-                            ),
-                    ),
             )
     }
 
