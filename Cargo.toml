@@ -7,7 +7,8 @@ license = "Apache-2.0"
 readme = "README.md"
 keywords = ["wslc", "wsl", "containers", "gpui", "desktop"]
 categories = ["gui", "development-tools"]
-repository = "https://cursor.com/codebase/quentinz/wslc-desktop"
+repository = "https://github.com/timeroute/wslc-desktop"
+homepage = "https://timeroute.github.io/wslc-desktop-website/"
 authors = ["WSLc Desktop Contributors"]
 
 [package.metadata.wix]
