@@ -73,8 +73,39 @@ pub fn ensure_sdk_dir(
     emit(FetchEvent::Log(format!("Native arch folder: {arch}")));
     emit(FetchEvent::Progress(12.0));
 
+    let stamp_path = sdk_root().join("active.json");
+
+    // Prefer a matching on-disk DLL before touching NuGet (offline / stale index).
+    if !force_redownload {
+        if let Some(dir) = try_active_sdk_dir(&stamp_path, Some(&host), arch) {
+            emit(FetchEvent::Status("Using cached SDK".into()));
+            emit(FetchEvent::Log(format!(
+                "Cache hit (active stamp): {}",
+                dir.join("wslcsdk.dll").display()
+            )));
+            emit(FetchEvent::Progress(100.0));
+            return Ok(dir);
+        }
+    }
+
     emit(FetchEvent::Status("Listing Microsoft.WSL.Containers on NuGet…".into()));
-    let versions = nuget_versions(&mut emit).context("list Microsoft.WSL.Containers versions")?;
+    let versions = match nuget_versions(&mut emit) {
+        Ok(versions) => versions,
+        Err(err) => {
+            // Last resort: any previously activated DLL, even if host string drifted.
+            if !force_redownload {
+                if let Some(dir) = try_active_sdk_dir(&stamp_path, None, arch) {
+                    emit(FetchEvent::Log(format!(
+                        "NuGet unavailable ({err:#}); reusing active SDK cache"
+                    )));
+                    emit(FetchEvent::Status("Using cached SDK".into()));
+                    emit(FetchEvent::Progress(100.0));
+                    return Ok(dir);
+                }
+            }
+            return Err(err).context("list Microsoft.WSL.Containers versions");
+        }
+    };
     emit(FetchEvent::Log(format!(
         "NuGet published {} package version(s)",
         versions.len()
@@ -89,7 +120,6 @@ pub fn ensure_sdk_dir(
 
     let dir = sdk_root().join(format!("nuget-{nuget}")).join(arch);
     let dll = dir.join("wslcsdk.dll");
-    let stamp_path = sdk_root().join("active.json");
 
     if force_redownload && dll.is_file() {
         emit(FetchEvent::Log(format!(
@@ -216,46 +246,87 @@ fn run_hidden(args: &[&str]) -> Result<String> {
     Ok(text)
 }
 
+fn try_active_sdk_dir(
+    stamp_path: &Path,
+    host: Option<&str>,
+    arch: &str,
+) -> Option<PathBuf> {
+    let raw = fs::read_to_string(stamp_path).ok()?;
+    let stamp: ActiveStamp = serde_json::from_str(&raw).ok()?;
+    if stamp.arch != arch {
+        return None;
+    }
+    if let Some(host) = host {
+        if stamp.host_version != host {
+            return None;
+        }
+    }
+    let dir = sdk_root()
+        .join(format!("nuget-{}", stamp.nuget_version))
+        .join(arch);
+    nuget_dir_ready(&dir).then_some(dir)
+}
+
 fn nuget_versions(emit: &mut dyn FnMut(FetchEvent)) -> Result<Vec<String>> {
     let cache_path = sdk_root().join("nuget-index.json");
-    if let Ok(raw) = fs::read_to_string(&cache_path) {
-        if let Ok(cache) = serde_json::from_str::<IndexCache>(&raw) {
-            let age = now_unix().saturating_sub(cache.fetched_unix);
-            if age < INDEX_MAX_AGE.as_secs() && !cache.versions.is_empty() {
-                emit(FetchEvent::Log(
-                    "Using cached NuGet version index (< 1h old)".into(),
-                ));
-                return Ok(cache.versions);
-            }
+    let cached = fs::read_to_string(&cache_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<IndexCache>(&raw).ok())
+        .filter(|cache| !cache.versions.is_empty());
+
+    if let Some(ref cache) = cached {
+        let age = now_unix().saturating_sub(cache.fetched_unix);
+        if age < INDEX_MAX_AGE.as_secs() {
+            emit(FetchEvent::Log(
+                "Using cached NuGet version index (< 1h old)".into(),
+            ));
+            return Ok(cache.versions.clone());
         }
     }
 
     emit(FetchEvent::Log(format!("GET {NUGET_INDEX}")));
-    let body: serde_json::Value = ureq::get(NUGET_INDEX)
-        .call()
-        .context("GET nuget index")?
-        .into_json()
-        .context("parse nuget index")?;
-    let versions = body
-        .get("versions")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(str::to_string))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    if versions.is_empty() {
-        return Err(anyhow!("empty nuget version list"));
-    }
+    let fetched = (|| -> Result<Vec<String>> {
+        let body: serde_json::Value = ureq::get(NUGET_INDEX)
+            .call()
+            .context("GET nuget index")?
+            .into_json()
+            .context("parse nuget index")?;
+        let versions = body
+            .get("versions")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if versions.is_empty() {
+            return Err(anyhow!("empty nuget version list"));
+        }
+        Ok(versions)
+    })();
 
-    fs::create_dir_all(sdk_root())?;
-    let cache = IndexCache {
-        fetched_unix: now_unix(),
-        versions: versions.clone(),
-    };
-    fs::write(&cache_path, serde_json::to_string_pretty(&cache)?)?;
-    Ok(versions)
+    match fetched {
+        Ok(versions) => {
+            fs::create_dir_all(sdk_root())?;
+            let cache = IndexCache {
+                fetched_unix: now_unix(),
+                versions: versions.clone(),
+            };
+            fs::write(&cache_path, serde_json::to_string_pretty(&cache)?)?;
+            Ok(versions)
+        }
+        Err(err) => {
+            if let Some(cache) = cached {
+                emit(FetchEvent::Log(format!(
+                    "NuGet index refresh failed ({err:#}); using stale cached index"
+                )));
+                Ok(cache.versions)
+            } else {
+                Err(err)
+            }
+        }
+    }
 }
 
 fn now_unix() -> u64 {

@@ -836,9 +836,21 @@ impl Sdk {
 }
 
 /// Returns the process-global loaded SDK function table.
+///
+/// Successful loads are cached. Failures are **not** — Retry after fixing /
+/// redownloading the DLL must be able to call `Sdk::load` again.
 pub fn sdk() -> Result<&'static Sdk> {
-    static SDK: OnceLock<Result<Sdk>> = OnceLock::new();
-    SDK.get_or_init(Sdk::load).as_ref().map_err(clone_error)
+    static SDK: OnceLock<Sdk> = OnceLock::new();
+    if let Some(sdk) = SDK.get() {
+        return Ok(sdk);
+    }
+    static LOAD: Mutex<()> = Mutex::new(());
+    let _guard = LOAD.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(sdk) = SDK.get() {
+        return Ok(sdk);
+    }
+    let loaded = Sdk::load()?;
+    Ok(SDK.get_or_init(|| loaded))
 }
 
 /// Initializes COM on the current thread.
@@ -905,23 +917,6 @@ fn check_hr(hr: HRESULT, error_message: PWSTR) -> Result<()> {
 
 fn succeeded(hr: HRESULT) -> bool {
     hr >= 0
-}
-
-fn clone_error(error: &Error) -> Error {
-    match error {
-        Error::UnsupportedPlatform(value) => Error::UnsupportedPlatform(value),
-        Error::SdkNotFound(value) => Error::SdkNotFound(value.clone()),
-        Error::ComInitialization { code, message } => Error::ComInitialization {
-            code: *code,
-            message: message.clone(),
-        },
-        Error::HResult { code, message } => Error::HResult {
-            code: *code,
-            message: message.clone(),
-        },
-        Error::InvalidInput(value) => Error::InvalidInput(value.clone()),
-        Error::Utf8(value) => Error::InvalidInput(value.to_string()),
-    }
 }
 
 fn free_cotaskmem(ptr: *mut c_void) {

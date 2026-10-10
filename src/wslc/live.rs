@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Sender};
 use std::thread;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
@@ -236,11 +237,15 @@ fn progress_percent(current: u64, total: u64) -> Option<f32> {
 }
 
 fn now_label() -> String {
+    static SEQ: AtomicU64 = AtomicU64::new(0);
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() % 10_000)
+        .map(|d| d.as_secs())
         .unwrap_or(0);
-    format!("ctr-{secs}")
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    // Full epoch seconds + monotonic seq: unique within a process, and
+    // collision-resistant across restarts (unlike secs % 10_000).
+    format!("ctr-{secs}-{seq}")
 }
 
 fn format_ports(ports: &[PortMapping]) -> String {
