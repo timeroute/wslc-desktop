@@ -70,6 +70,19 @@ jobs:
         shell: pwsh
         run: cargo install cargo-wix --locked
 
+      - name: Fetch WSL Containers SDK (wslcsdk.dll)
+        shell: pwsh
+        env:
+          WSLC_SDK_VERSION: "2.9.3"
+        run: |
+          .\scripts\fetch-wslc-sdk.ps1
+          if (-not (Test-Path "wix\sdk\win-x64\wslcsdk.dll")) {
+            throw "Missing staged wslcsdk.dll — MSI cannot ship LIVE mode"
+          }
+          if (-not (Test-Path "wix\sdk\win-x64\NOTICE.txt")) {
+            throw "Missing staged SDK NOTICE.txt"
+          }
+
       - name: Build MSI
         shell: pwsh
         run: |

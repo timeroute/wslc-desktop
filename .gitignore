@@ -20,3 +20,7 @@ Thumbs.db
 /agent-tools/
 /tmp/
 *.log
+
+# Staged Microsoft.WSL.Containers native DLL (fetched by scripts/fetch-wslc-sdk.ps1)
+/.wslc-sdk/
+/wix/sdk/win-x64/
