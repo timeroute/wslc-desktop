@@ -170,10 +170,12 @@ fn state_label(state: wslc::ContainerState) -> String {
 }
 
 fn storage_path() -> PathBuf {
+    // Must be a dedicated directory: WSLC rejects non-empty storage roots.
+    // SDK downloads live under `%LOCALAPPDATA%\WSLcDesktop\sdk\` — keep session data apart.
     let base = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(r"C:\WslcData"));
-    base.join("WSLcDesktop")
+    base.join("WSLcDesktop").join("session")
 }
 
 fn progress_percent(current: u64, total: u64) -> Option<f32> {

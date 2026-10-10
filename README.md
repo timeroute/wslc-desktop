@@ -2,7 +2,7 @@
 
 面向 Windows **WSL Containers（WSLc）** 的轻量级桌面管理器，基于 [GPUI Kit](https://gpui-kit.com)（Zed GPUI + 组件库）构建。
 
-通过官方 **WSL Containers SDK**（Rust crate [`wslc`](https://crates.io/crates/wslc)）浏览与管理容器、镜像与 VHD 卷。MSI **不捆绑** DLL：首次启动读取本机 `wslc`/`wsl` 版本，从 NuGet 下载匹配的 `Microsoft.WSL.Containers` 原生库到 `%LOCALAPPDATA%\WSLcDesktop\sdk\`；WSL 版本变化时会再检查并升级。若下载失败或运行时组件不齐，则进入 **Demo**。容器操作走 SDK，**不用** CLI。
+通过官方 **WSL Containers SDK**（Rust crate [`wslc`](https://crates.io/crates/wslc)）浏览与管理容器、镜像与 VHD 卷。MSI **不捆绑** DLL：首次启动读取本机 `wslc`/`wsl` 版本，从 NuGet 下载匹配的 `Microsoft.WSL.Containers` 原生库到 `%LOCALAPPDATA%\WSLcDesktop\sdk\`；会话数据在同级的 `session\`（与 SDK 缓存分离，避免「目录非空」）。WSL 版本变化时会再检查并升级 SDK。若下载失败或运行时组件不齐，则进入 **Demo**。容器操作走 SDK，**不用** CLI。
 
 ## 功能
 
