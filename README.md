@@ -2,12 +2,20 @@
 
 面向 Windows **WSL Containers（WSLc）** 的轻量级桌面管理器，基于 [GPUI Kit](https://gpui-kit.com) 构建。
 
+网站：<https://timeroute.github.io/wslc-desktop-website/>
+
+下载：[Releases](https://github.com/timeroute/wslc-desktop/releases) 中的 `WSLc.Desktop-<version>-x86_64.msi`。
+
+| 总览 | 容器日志 | 拉取镜像 |
+|------|----------|----------|
+| ![总览](docs/screenshots/overview.png) | ![容器日志](docs/screenshots/containers-logs.png) | ![拉取镜像](docs/screenshots/images-pull.png) |
+
 用独立会话 `wslc-desktop`（`%LOCALAPPDATA%\WSLcDesktop\`）管理容器、镜像与 VHD 卷，与默认 `wslc` CLI 会话隔离。Rust 绑定使用自维护 fork [`timeroute/wslc-rs`](https://github.com/timeroute/wslc-rs)（OpenContainer / Logs / named volumes）。MSI **不捆绑** `wslcsdk.dll`：首次启动以阻塞弹窗安装/更新 SDK。
 
 ## 安装（推荐）
 
 1. 打开 [Releases](https://github.com/timeroute/wslc-desktop/releases)
-2. 下载最新 `wslc-desktop-*-x86_64.msi` 并安装
+2. 下载最新 `WSLc.Desktop-<version>-x86_64.msi` 并安装
 3. 确保本机 [WSL 2.9.3+](https://learn.microsoft.com/windows/wsl/install)（`wsl --update`）
 4. 首次启动按提示完成 SDK 安装；之后即可拉取镜像、创建容器
 
@@ -45,7 +53,7 @@ cargo test
 
 ```powershell
 cargo wix
-# 产物：target\wix\wslc-desktop-<version>-x86_64.msi
+# 产物：target\wix\WSLc.Desktop-<version>-x86_64.msi
 ```
 
 可选：`cargo wix --no-build`（已有 release 产物时）、`cargo wix --sign`（需 `signtool`）。
