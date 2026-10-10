@@ -139,9 +139,9 @@ git push origin v0.1.0
 wix/                 # MSI：桌面/开始菜单快捷方式 + 产品图标
 src/
   main.rs            # 窗口启动与快捷键
-  app.rs             # 侧栏导航 + TitleBar 设置按钮
+  app/               # GPUI 主界面（按功能拆分：shell、containers、images、…）
   i18n.rs            # 中英文字符串与系统语言检测
-  wslc/              # SDK 封装（独立会话 Live；安装/拉取/创建进度事件）
+  wslc/              # SDK 封装（types + 独立会话 Live；安装/拉取/创建进度事件）
 ```
 
 ## 架构说明
