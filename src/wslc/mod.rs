@@ -15,6 +15,8 @@ mod live;
 mod paths;
 mod prefs;
 #[cfg(windows)]
+mod sdk_cache;
+#[cfg(windows)]
 mod sdk_fetch;
 mod sdk_version;
 pub mod setup_log;
@@ -22,6 +24,8 @@ pub mod setup_log;
 mod syspath;
 pub mod templates;
 mod types;
+#[cfg(windows)]
+mod wsl_probe;
 
 pub use prefs::SessionPrefs;
 pub use templates::{ContainerTemplate, TemplateEditError, TemplateStore, UpsertKind};
@@ -223,35 +227,34 @@ impl WslcClient {
             "Checking WSL version (require {required} or newer)…"
         )));
 
-        // Prefer the MSI registry value WSL itself writes (no process spawn /
-        // UTF-16 pipe). Fall back to `wsl --version` only when that is absent.
-        // `wslc::Service::version()` needs wslcsdk.dll and cannot run yet.
-        let verdict = if let Some(version) = sdk_fetch::probe_wsl_registry_version() {
-            let _ = tx.send(SdkSetupEvent::Log(format!(
-                "WSL package version from registry (Lxss\\Msi): {version}"
-            )));
-            sdk_version::judge_wsl_version(Some(&version))
-        } else {
-            let _ = tx.send(SdkSetupEvent::Log(
-                "Registry Lxss\\Msi\\Version missing; falling back to `wsl --version`".into(),
-            ));
-            let output = sdk_fetch::probe_wsl_version_output();
-            if let Some(out) = &output {
-                for line in out.lines() {
-                    let line = line.trim();
-                    if !line.is_empty() {
-                        let _ = tx.send(SdkSetupEvent::Log(format!("wsl: {line}")));
+        // Registry first; CLI only if missing. SDK API needs wslcsdk.dll loaded.
+        let probe = wsl_probe::probe_wsl();
+        match &probe {
+            wsl_probe::WslProbe::Registry { version } => {
+                let _ = tx.send(SdkSetupEvent::Log(format!(
+                    "WSL package version from registry (Lxss\\Msi): {version}"
+                )));
+            }
+            wsl_probe::WslProbe::Cli { raw } => {
+                let _ = tx.send(SdkSetupEvent::Log(
+                    "Registry Lxss\\Msi\\Version missing; falling back to `wsl --version`".into(),
+                ));
+                if raw.trim().is_empty() {
+                    let _ = tx.send(SdkSetupEvent::Log(
+                        "wsl --version produced no output (is WSL installed and on PATH?)".into(),
+                    ));
+                } else {
+                    for line in raw.lines() {
+                        let line = line.trim();
+                        if !line.is_empty() {
+                            let _ = tx.send(SdkSetupEvent::Log(format!("wsl: {line}")));
+                        }
                     }
                 }
-            } else {
-                let _ = tx.send(SdkSetupEvent::Log(
-                    "wsl --version produced no output (is WSL installed and on PATH?)".into(),
-                ));
             }
-            sdk_version::judge_wsl_version(output.as_deref())
-        };
+        }
 
-        match verdict {
+        match probe.verdict() {
             sdk_version::WslVersionVerdict::Ok(version) => {
                 let _ = tx.send(SdkSetupEvent::Log(format!(
                     "WSL {version} meets the {required}+ requirement"
