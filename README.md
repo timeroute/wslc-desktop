@@ -54,6 +54,7 @@ cargo test
 ```powershell
 cargo wix
 # 产物：target\wix\WSLc.Desktop-<version>-x86_64.msi
+# 当前 0.1.1：WSLc.Desktop-0.1.1-x86_64.msi
 ```
 
 可选：`cargo wix --no-build`（已有 release 产物时）、`cargo wix --sign`（需 `signtool`）。
@@ -63,9 +64,9 @@ cargo wix
 打 `v*` tag 会触发 [Windows MSI](.github/workflows/windows-msi.yml) 工作流：构建 MSI 并创建 Release 挂载安装包。
 
 ```powershell
-# 版本与 Cargo.toml 对齐，例如 0.1.0 → v0.1.0
-git tag v0.1.0
-git push origin v0.1.0
+# 版本与 Cargo.toml 对齐，例如 0.1.1 → v0.1.1
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 也可：push / PR 到 `main` 仅上传 artifact；或 Actions → **Windows MSI** → **Run workflow**。

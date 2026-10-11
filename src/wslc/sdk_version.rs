@@ -1,20 +1,15 @@
 //! Host / NuGet version matching (no Windows-only deps).
 //!
 //! `wsl.exe --version` writes UTF-16LE when stdout is a pipe (no console).
-//! Reading those bytes as UTF-8/Latin-1 leaves NUL gaps (`W\0S\0L`) or, once
-//! NULs are shown as spaces, `W S L   Hr,g:   3 . 0 . 1 . 0` — `版本` is the
-//! UTF-16LE code units `48 72 2C 67`. Either form hides `3.0.1.0` from a
-//! naive `x.y.z` scan, so a new enough WSL looks missing.
-
-/// Oldest WSL release that ships WSL Containers.
-pub const MIN_WSL_VERSION: &str = "2.9.3";
+//! Reading those bytes as UTF-8 leaves NUL gaps (`W\0S\0L`) or, once NULs are
+//! shown as spaces, `W S L   Hr,g:   3 . 0 . 1 . 0`. `版本` is the UTF-16LE
+//! code units `48 72 2C 67`. Either form hides `3.0.1.0` from a naive scan.
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct SemVer {
     pub major: u32,
     pub minor: u32,
     pub patch: u32,
-    pub revision: u32,
 }
 
 impl SemVer {
@@ -23,26 +18,33 @@ impl SemVer {
         let major = parts.next()?.parse().ok()?;
         let minor = parts.next()?.parse().ok()?;
         let patch = parts.next().unwrap_or("0").parse().ok()?;
-        let revision = match parts.next() {
-            Some(part) => part.parse().ok()?,
-            None => 0,
-        };
         Some(Self {
             major,
             minor,
             patch,
-            revision,
         })
     }
 }
 
-/// `true` when `version` is `2.9.3` or newer. `3.0.1.0` qualifies; the fourth
-/// component is the Windows revision and missing components count as zero.
-pub fn meets_min_wsl_version(version: &str) -> bool {
-    match (SemVer::parse(version), SemVer::parse(MIN_WSL_VERSION)) {
-        (Some(version), Some(min)) => version >= min,
-        _ => false,
+impl std::fmt::Display for SemVer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
     }
+}
+
+/// First-launch gate. Older hosts cannot run the WSL Containers SDK this app targets.
+pub const MIN_WSL_VERSION: SemVer = SemVer {
+    major: 2,
+    minor: 9,
+    patch: 3,
+};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(windows), allow(dead_code))]
+pub enum WslVersionVerdict {
+    Ok(String),
+    Missing,
+    TooOld { found: String },
 }
 
 /// Decode a captured stdout/stderr buffer.
@@ -64,42 +66,75 @@ pub fn decode_command_output(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
-/// Read a WSL / `wslc` version from raw process pipes.
-pub fn wsl_version_from_output(stdout: &[u8], stderr: &[u8]) -> Option<String> {
-    let out = decode_command_output(stdout);
-    let err = decode_command_output(stderr);
-    let combined = match (out.trim().is_empty(), err.trim().is_empty()) {
-        (true, _) => err,
-        (_, true) => out,
-        _ => format!("{out}\n{err}"),
-    };
-    extract_wsl_version(&combined)
-}
-
-/// Pull the first `x.y.z` (dropping a fourth component) from command output.
-pub fn extract_version(text: &str) -> Option<String> {
-    let full = extract_wsl_version(text)?;
-    let semver = SemVer::parse(&full)?;
-    Some(format!(
-        "{}.{}.{}",
-        semver.major, semver.minor, semver.patch
-    ))
-}
-
-/// WSL product version from `wsl --version` / `wslc version` text.
+/// Classify `wsl --version` output.
 ///
-/// Prefers a `WSL version` / `WSL 版本` line over kernel, WSLg, and Windows
-/// lines. Also accepts NUL-separated UTF-16 misreads and the spaced form
-/// those NULs become when displayed.
-pub fn extract_wsl_version(text: &str) -> Option<String> {
-    let stripped: String = text.chars().filter(|c| *c != '\0').collect();
-    if let Some(version) = extract_wsl_version_raw(&stripped) {
-        return Some(version);
+/// Prefers a line labeled `WSL` (English or `WSL 版本`) and ignores `WSLg`.
+/// A single bare version token is accepted. Multiple unlabeled versions are
+/// treated as unreadable so a kernel version cannot pass the check by accident.
+/// NUL-separated and spaced UTF-16 misreads are repaired before that scan.
+/// `3.0.1.0` satisfies `>= 2.9.3` (the fourth component is ignored).
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn judge_wsl_version(output: Option<&str>) -> WslVersionVerdict {
+    let Some(text) = output.map(str::trim).filter(|s| !s.is_empty()) else {
+        return WslVersionVerdict::Missing;
+    };
+    let normalized = normalize_command_text(text);
+    let version = labeled_wsl_version(&normalized).or_else(|| sole_version(&normalized));
+    match version {
+        Some(v) => match SemVer::parse(&v) {
+            Some(sv) if sv >= MIN_WSL_VERSION => WslVersionVerdict::Ok(v),
+            Some(_) => WslVersionVerdict::TooOld { found: v },
+            None => WslVersionVerdict::Missing,
+        },
+        None => WslVersionVerdict::Missing,
     }
-    if looks_like_spaced_utf16(&stripped) {
-        let collapsed = collapse_ascii_gaps(&stripped);
-        if collapsed != stripped {
-            return extract_wsl_version_raw(&collapsed);
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn labeled_wsl_version(text: &str) -> Option<String> {
+    let line = text.lines().find(|line| {
+        let head = line
+            .split(':')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        head.starts_with("wsl") && !head.starts_with("wslg")
+    })?;
+    extract_version(line)
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn sole_version(text: &str) -> Option<String> {
+    let mut found = None;
+    for token in text.split(|c: char| !(c.is_ascii_digit() || c == '.')) {
+        if token.is_empty() {
+            continue;
+        }
+        let Some(version) = extract_version(token) else {
+            continue;
+        };
+        if found.is_some() {
+            return None;
+        }
+        found = Some(version);
+    }
+    found
+}
+
+/// Pull the first `x.y.z` / `x.y.z.w` from command output (fourth component dropped).
+pub fn extract_version(text: &str) -> Option<String> {
+    for token in text.split(|c: char| !(c.is_ascii_digit() || c == '.')) {
+        if token.is_empty() {
+            continue;
+        }
+        let parts: Vec<&str> = token.split('.').collect();
+        if parts.len() >= 3
+            && parts
+                .iter()
+                .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+        {
+            return Some(format!("{}.{}.{}", parts[0], parts[1], parts[2]));
         }
     }
     None
@@ -128,128 +163,15 @@ pub fn pick_nuget_version(host: &str, available: &[String]) -> Option<String> {
     parsed.last().map(|(_, v)| (*v).clone())
 }
 
-fn extract_wsl_version_raw(text: &str) -> Option<String> {
-    let lines = non_empty_lines(text);
-
-    for line in &lines {
-        if is_explicit_wsl_version_line(line)
-            && let Some(version) = first_version_token(line)
-        {
-            return Some(version);
+fn normalize_command_text(text: &str) -> String {
+    let stripped: String = text.chars().filter(|c| *c != '\0').collect();
+    if looks_like_spaced_utf16(&stripped) {
+        let collapsed = collapse_ascii_gaps(&stripped);
+        if collapsed != stripped {
+            return collapsed;
         }
     }
-
-    // UTF-16 read as Latin-1 turns `版本` into `Hr,g`, so the label is gone
-    // but the line still starts with WSL. Skip kernel / WSLg / Windows lines.
-    for line in &lines {
-        if mentions_wsl_product(line)
-            && !is_non_wsl_component_line(line)
-            && let Some(version) = first_version_token(line)
-        {
-            return Some(version);
-        }
-    }
-
-    bare_tool_version(&lines)
-}
-
-fn non_empty_lines(text: &str) -> Vec<&str> {
-    text.lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .collect()
-}
-
-fn is_explicit_wsl_version_line(line: &str) -> bool {
-    if !mentions_wsl_product(line) || is_non_wsl_component_line(line) {
-        return false;
-    }
-    let lower = line.to_ascii_lowercase();
-    lower.contains("version") || line.contains("版本")
-}
-
-fn mentions_wsl_product(line: &str) -> bool {
-    let lower = line.to_ascii_lowercase();
-    if lower.contains("wslg") {
-        return false;
-    }
-    lower.contains("wsl")
-}
-
-fn is_non_wsl_component_line(line: &str) -> bool {
-    let lower = line.to_ascii_lowercase();
-    lower.contains("wslg")
-        || lower.contains("kernel")
-        || lower.contains("msrdc")
-        || lower.contains("direct3d")
-        || lower.contains("dxcore")
-        || lower.contains("windows")
-        || line.contains("内核")
-}
-
-/// `wslc version` often prints a bare `x.y.z` or `wslc x.y.z` with no banner.
-fn bare_tool_version(lines: &[&str]) -> Option<String> {
-    if lines.len() != 1 {
-        return None;
-    }
-    let line = lines[0];
-    if is_non_wsl_component_line(line) {
-        return None;
-    }
-    let token = first_version_token(line)?;
-    let lower = line.to_ascii_lowercase();
-    if line.trim() == token || lower.contains("wslc") || mentions_wsl_product(line) {
-        Some(token)
-    } else {
-        None
-    }
-}
-
-fn first_version_token(text: &str) -> Option<String> {
-    let bytes = text.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if !bytes[i].is_ascii_digit() {
-            i += 1;
-            continue;
-        }
-        let start = i;
-        let mut dots = 0;
-        let mut prev_digit = true;
-        i += 1;
-        while i < bytes.len() {
-            if bytes[i].is_ascii_digit() {
-                prev_digit = true;
-                i += 1;
-            } else if bytes[i] == b'.' && prev_digit {
-                dots += 1;
-                prev_digit = false;
-                i += 1;
-            } else {
-                break;
-            }
-        }
-        if !prev_digit && i > start {
-            i -= 1;
-        }
-        if dots >= 2 && prev_digit {
-            return Some(truncate_components(&text[start..i], 4));
-        }
-    }
-    None
-}
-
-fn truncate_components(token: &str, max_components: usize) -> String {
-    let mut dots = 0;
-    for (idx, ch) in token.char_indices() {
-        if ch == '.' {
-            dots += 1;
-            if dots == max_components {
-                return token[..idx].to_string();
-            }
-        }
-    }
-    token.to_string()
+    stripped
 }
 
 fn decode_utf16(bytes: &[u8]) -> Option<String> {
@@ -412,16 +334,6 @@ DXCore 版本: 10.0.26100.1-240331-1435.ge-release
 Windows 版本: 10.0.26100.3476
 ";
 
-    const ENGLISH_VERSION: &str = "\
-WSL version: 2.9.3.0
-Kernel version: 6.6.87.1-1
-WSLg version: 1.0.66
-MSRDC version: 1.2.6074
-Direct3D version: 1.611.1-81528511
-DXCore version: 10.0.26100.1-240331-1435.ge-release
-Windows version: 10.0.22621.2715
-";
-
     #[test]
     fn extracts_version_tokens() {
         assert_eq!(
@@ -461,68 +373,92 @@ Windows version: 10.0.22621.2715
     }
 
     #[test]
-    fn utf16_le_chinese_wsl_version_meets_minimum() {
-        let bytes = encode_utf16_le(CHINESE_VERSION);
-        let version = wsl_version_from_output(&bytes, b"").expect("version");
-        assert_eq!(version, "3.0.1.0");
-        assert!(meets_min_wsl_version(&version));
+    fn judges_wsl_version_output() {
+        assert_eq!(judge_wsl_version(None), WslVersionVerdict::Missing);
+        assert_eq!(judge_wsl_version(Some("  ")), WslVersionVerdict::Missing);
         assert_eq!(
-            decode_command_output(&bytes).lines().next(),
-            Some("WSL 版本: 3.0.1.0")
+            judge_wsl_version(Some("2.9.3")),
+            WslVersionVerdict::Ok("2.9.3".into())
         );
+        assert_eq!(
+            judge_wsl_version(Some("2.10.0")),
+            WslVersionVerdict::Ok("2.10.0".into())
+        );
+        assert_eq!(
+            judge_wsl_version(Some("2.9.2")),
+            WslVersionVerdict::TooOld {
+                found: "2.9.2".into()
+            }
+        );
+
+        let english = "\
+WSL version: 2.4.13.0
+Kernel version: 5.15.167.4-1
+WSLg version: 1.0.65
+";
+        assert_eq!(
+            judge_wsl_version(Some(english)),
+            WslVersionVerdict::TooOld {
+                found: "2.4.13".into()
+            }
+        );
+
+        let chinese = "WSL 版本: 2.9.3.0\n内核版本: 5.15.167.4-1\n";
+        assert_eq!(
+            judge_wsl_version(Some(chinese)),
+            WslVersionVerdict::Ok("2.9.3".into())
+        );
+
+        let unlabeled = "Kernel version: 5.15.167.4-1\nWSLg version: 1.0.65\n";
+        assert_eq!(
+            judge_wsl_version(Some(unlabeled)),
+            WslVersionVerdict::Missing
+        );
+        assert_eq!(format!("{}", MIN_WSL_VERSION), "2.9.3");
     }
 
     #[test]
-    fn utf16_le_bom_and_stderr_only() {
-        let mut bytes = vec![0xFF, 0xFE];
-        bytes.extend(encode_utf16_le(
+    fn utf16_le_chinese_3_0_1_0_meets_minimum() {
+        let bytes = encode_utf16_le(CHINESE_VERSION);
+        let text = decode_command_output(&bytes);
+        assert_eq!(text.lines().next(), Some("WSL 版本: 3.0.1.0"));
+        assert_eq!(
+            judge_wsl_version(Some(&text)),
+            WslVersionVerdict::Ok("3.0.1".into())
+        );
+        assert!(SemVer::parse("3.0.1.0").unwrap() >= MIN_WSL_VERSION);
+
+        let mut bom = vec![0xFF, 0xFE];
+        bom.extend(encode_utf16_le(
             "WSL version: 3.0.1.0\r\nKernel version: 6.18.40.1-1\r\n",
         ));
+        let from_stderr = decode_command_output(&bom);
         assert_eq!(
-            wsl_version_from_output(b"", &bytes).as_deref(),
-            Some("3.0.1.0")
+            judge_wsl_version(Some(&from_stderr)),
+            WslVersionVerdict::Ok("3.0.1".into())
         );
     }
 
     #[test]
-    fn english_utf8_boundary_and_kernel_is_not_wsl() {
-        assert_eq!(
-            extract_wsl_version(ENGLISH_VERSION).as_deref(),
-            Some("2.9.3.0")
-        );
-        assert!(meets_min_wsl_version("2.9.3.0"));
-        assert!(meets_min_wsl_version("2.9.3"));
-        assert!(!meets_min_wsl_version("2.9.2.9"));
-        assert!(!meets_min_wsl_version("1.2.5"));
-        assert_eq!(
-            extract_wsl_version("Kernel version: 6.18.40.1-1\nWSL version: 3.0.1.0\n").as_deref(),
-            Some("3.0.1.0")
-        );
-        assert_eq!(extract_wsl_version("内核版本: 6.18.40.1-1\n"), None);
-    }
-
-    #[test]
-    fn nul_separated_utf16_misread_and_spaced_regression() {
+    fn nul_and_spaced_misread_still_accepts_3_0_1_0() {
         let bytes = encode_utf16_le(CHINESE_VERSION);
         let lossy = String::from_utf8_lossy(&bytes);
-        assert!(
-            lossy.contains('\0'),
-            "UTF-16LE read as UTF-8 must keep NUL gaps"
+        assert!(lossy.contains('\0'));
+        assert_eq!(
+            judge_wsl_version(Some(&lossy)),
+            WslVersionVerdict::Ok("3.0.1".into())
         );
-        assert_eq!(extract_wsl_version(&lossy).as_deref(), Some("3.0.1.0"));
 
-        // Log viewers (and a Latin-1 decode) show those NULs as spaces:
-        // `W S L   Hr,g:   3 . 0 . 1 . 0`
         let spaced = lossy.replace('\0', " ");
         assert!(
             spaced.contains("Hr,g"),
             "版本 misread as Latin-1 should surface as Hr,g, got {spaced:?}"
         );
         assert!(spaced.contains("3 . 0 . 1 . 0"), "got {spaced:?}");
-        assert_eq!(extract_wsl_version(&spaced).as_deref(), Some("3.0.1.0"));
-        assert!(meets_min_wsl_version(
-            extract_wsl_version(&spaced).as_deref().unwrap()
-        ));
+        assert_eq!(
+            judge_wsl_version(Some(&spaced)),
+            WslVersionVerdict::Ok("3.0.1".into())
+        );
     }
 
     #[test]
@@ -532,21 +468,9 @@ Windows version: 10.0.22621.2715
         assert_eq!(bytes.len() % 2, 1);
         assert!(super::decode_utf16(&bytes).is_none());
         let text = decode_command_output(&bytes);
-        assert_eq!(extract_wsl_version(&text).as_deref(), Some("3.0.1.0"));
-    }
-
-    #[test]
-    fn rejects_wslg_line_and_accepts_wslc_banner() {
-        let text = "\
-WSLg version: 1.0.66
-Kernel version: 6.18.40.1-1
-WSL version: 3.0.1.0
-";
-        assert_eq!(extract_wsl_version(text).as_deref(), Some("3.0.1.0"));
         assert_eq!(
-            extract_wsl_version("wslc 3.0.1\n").as_deref(),
-            Some("3.0.1")
+            judge_wsl_version(Some(&text)),
+            WslVersionVerdict::Ok("3.0.1".into())
         );
-        assert_eq!(extract_version("3.0.1.0\n").as_deref(), Some("3.0.1"));
     }
 }

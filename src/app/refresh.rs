@@ -1,27 +1,25 @@
 use std::sync::mpsc;
 use std::time::Duration;
 
-use gpui_kit::component::{
-    ActiveTheme, Theme, ThemeMode,
-    h_flex,
-    label::Label,
-    v_flex,
-};
+use gpui_kit::component::{ActiveTheme, Theme, ThemeMode, h_flex, label::Label, v_flex};
 use gpui_kit::*;
 use smol::Timer;
 
 use crate::i18n::{self, Locale};
-use crate::wslc::{
-    BackendKind, EngineStatus, WslcClient,
-};
+use crate::wslc::{BackendKind, EngineStatus, WslcClient};
 
+use super::AppView;
 use super::poll::recv_all;
 use super::state::PullPhase;
 use super::widgets::modal_scrim;
-use super::AppView;
 
 impl AppView {
-    pub(crate) fn apply_locale(&mut self, locale: Locale, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn apply_locale(
+        &mut self,
+        locale: Locale,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.locale == locale {
             return;
         }
@@ -42,6 +40,13 @@ impl AppView {
         self.command_input.update(cx, |state, cx| {
             state.set_placeholder(t.command_placeholder, window, cx);
         });
+        self.template_name_input.update(cx, |state, cx| {
+            state.set_placeholder(t.template_name_placeholder, window, cx);
+        });
+        self.template_rename_input.update(cx, |state, cx| {
+            state.set_placeholder(t.template_name_placeholder, window, cx);
+        });
+        self.template_banner = None;
         self.volume_input.update(cx, |state, cx| {
             state.set_placeholder(t.volume_placeholder, window, cx);
         });
@@ -76,7 +81,12 @@ impl AppView {
         cx.notify();
     }
 
-    pub(crate) fn apply_theme(&mut self, mode: ThemeMode, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn apply_theme(
+        &mut self,
+        mode: ThemeMode,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.theme_mode == mode {
             return;
         }
@@ -104,7 +114,9 @@ impl AppView {
                     || lower.contains("wslcsdk.dll")
                     || lower.contains("sdk install failed")
                 {
-                    if detail.is_empty() || lower.contains("wslcsdk.dll") || lower.contains("sdk not found")
+                    if detail.is_empty()
+                        || lower.contains("wslcsdk.dll")
+                        || lower.contains("sdk not found")
                     {
                         t.engine_missing.to_string()
                     } else {
@@ -161,7 +173,8 @@ impl AppView {
             }
             Err(err) => {
                 ok = false;
-                self.status_line = i18n::fmt1(t.list_containers_failed, "err", err.to_string()).into();
+                self.status_line =
+                    i18n::fmt1(t.list_containers_failed, "err", err.to_string()).into();
             }
         }
         match client.list_images() {
@@ -179,7 +192,10 @@ impl AppView {
         match client.list_volumes() {
             Ok(rows) => {
                 self.volumes = rows;
-                if self.selected_volume.is_some_and(|i| i >= self.volumes.len()) {
+                if self
+                    .selected_volume
+                    .is_some_and(|i| i >= self.volumes.len())
+                {
                     self.selected_volume = None;
                 }
             }
