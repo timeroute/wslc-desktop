@@ -163,6 +163,22 @@ pub fn pick_nuget_version(host: &str, available: &[String]) -> Option<String> {
     parsed.last().map(|(_, v)| (*v).clone())
 }
 
+/// Whether a cached NuGet SDK can serve this host without re-downloading.
+///
+/// Host probe strings can drift (`wslc` vs `wsl --version`, or `unknown` on a
+/// failed probe). Do not require an exact stamp match — only re-download when
+/// the cached package is clearly too old (major behind the host), or when the
+/// user forces Retry.
+pub fn cache_compatible(host: &str, nuget_version: &str) -> bool {
+    let Some(host_ver) = SemVer::parse(host) else {
+        return true;
+    };
+    let Some(nuget_ver) = SemVer::parse(nuget_version) else {
+        return false;
+    };
+    nuget_ver.major >= host_ver.major
+}
+
 fn normalize_command_text(text: &str) -> String {
     let stripped: String = text.chars().filter(|c| *c != '\0').collect();
     if looks_like_spaced_utf16(&stripped) {
@@ -370,6 +386,16 @@ Windows 版本: 10.0.26100.3476
             pick_nuget_version("unknown", &available).as_deref(),
             Some("3.0.1")
         );
+    }
+
+    #[test]
+    fn cache_compatible_ignores_host_string_drift() {
+        assert!(cache_compatible("unknown", "3.0.1"));
+        assert!(cache_compatible("2.9.3", "2.9.9"));
+        assert!(cache_compatible("2.9.5", "3.0.1"));
+        assert!(cache_compatible("3.0.1", "3.0.1"));
+        assert!(!cache_compatible("3.0.1", "2.9.9"));
+        assert!(!cache_compatible("3.0.0", "not-a-version"));
     }
 
     #[test]

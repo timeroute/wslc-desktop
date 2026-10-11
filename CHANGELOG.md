@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+### 修复
+
+- 已缓存的 SDK 在 host 版本探测字符串漂移时不再重复下载；仅当缓存包 major 落后于本机 WSL，或用户点「重试」时才会重新拉取。
+  - Cached SDK is reused across launches when the host version string drifts; re-download only if the cache is major-behind or Retry is used.
+- 禁止多开：同一用户会话只允许一个 WSLc Desktop 实例；再次启动会提示已在运行。
+  - Single-instance lock: a second launch shows a notice and exits.
+
 ## [0.1.2] - 2026-10-11
 
 ### 修复

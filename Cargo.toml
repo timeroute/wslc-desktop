@@ -38,6 +38,11 @@ sys-locale = "0.3"
 wslc = { git = "https://github.com/timeroute/wslc-rs", rev = "9fbcd72f6967f79d0dc805648120eaec77364a2e" }
 ureq = { version = "2.12", default-features = true, features = ["json"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+] }
 
 [profile.dev.package]
 gpui-pre = { opt-level = 3 }
