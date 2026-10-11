@@ -15,7 +15,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{anyhow, Context as _, Result};
 use serde::{Deserialize, Serialize};
 
-use super::sdk_version::{extract_version, pick_nuget_version};
+use super::sdk_version::{
+    MIN_WSL_VERSION, meets_min_wsl_version, pick_nuget_version, wsl_version_from_output,
+};
 
 const NUGET_INDEX: &str =
     "https://api.nuget.org/v3-flatcontainer/microsoft.wsl.containers/index.json";
@@ -57,9 +59,16 @@ pub fn ensure_sdk_dir(
             emit(FetchEvent::Log(format!("Host version: {v}")));
             v
         }
-        Err(err) => {
+        Err(ProbeError::TooOld(version)) => {
+            let message = format!(
+                "WSL {version} is older than {MIN_WSL_VERSION}. Run `wsl --update` and retry."
+            );
+            emit(FetchEvent::Log(message.clone()));
+            return Err(anyhow!(message));
+        }
+        Err(ProbeError::Missing(detail)) => {
             emit(FetchEvent::Log(format!(
-                "Could not read wslc/wsl version: {err:#}"
+                "Could not read wslc/wsl version: {detail}"
             )));
             emit(FetchEvent::Log(
                 "Install or update WSL (`wsl --install` / `wsl --update`), ensure it is on PATH, then retry."
@@ -204,25 +213,51 @@ fn native_arch_folder() -> &'static str {
     }
 }
 
-fn probe_host_version() -> Result<String> {
+enum ProbeError {
+    TooOld(String),
+    Missing(String),
+}
+
+fn probe_host_version() -> std::result::Result<String, ProbeError> {
+    let mut too_old = None;
+    let mut saw_output = false;
     for args in [
         ["wslc", "version"].as_slice(),
         ["wslc.exe", "version"].as_slice(),
         ["wsl", "--version"].as_slice(),
         ["wsl.exe", "--version"].as_slice(),
     ] {
-        if let Ok(out) = run_hidden(args) {
-            if let Some(v) = extract_version(&out) {
-                return Ok(v);
-            }
+        let Ok((stdout, stderr)) = run_hidden(args) else {
+            continue;
+        };
+        if stdout.is_empty() && stderr.is_empty() {
+            continue;
         }
+        saw_output = true;
+        let Some(version) = wsl_version_from_output(&stdout, &stderr) else {
+            continue;
+        };
+        if meets_min_wsl_version(&version) {
+            return Ok(version);
+        }
+        too_old = Some(version);
     }
-    Err(anyhow!(
-        "could not read wslc/wsl version (is WSL installed and on PATH?)"
+    if let Some(version) = too_old {
+        return Err(ProbeError::TooOld(version));
+    }
+    if saw_output {
+        return Err(ProbeError::Missing(
+            "could not parse a WSL version from `wsl --version` / `wslc version` output".into(),
+        ));
+    }
+    Err(ProbeError::Missing(
+        "could not read wslc/wsl version (is WSL installed and on PATH?)".into(),
     ))
 }
 
-fn run_hidden(args: &[&str]) -> Result<String> {
+/// Capture stdout/stderr as bytes. `wsl.exe` writes UTF-16LE when the pipe is
+/// not a console; decoding happens in `sdk_version::decode_command_output`.
+fn run_hidden(args: &[&str]) -> Result<(Vec<u8>, Vec<u8>)> {
     let (program, rest) = args
         .split_first()
         .ok_or_else(|| anyhow!("empty command"))?;
@@ -236,14 +271,10 @@ fn run_hidden(args: &[&str]) -> Result<String> {
     let output = cmd
         .output()
         .with_context(|| format!("spawn `{program}`"))?;
-    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
-    if text.trim().is_empty() {
-        text = String::from_utf8_lossy(&output.stderr).into_owned();
-    }
-    if !output.status.success() && text.trim().is_empty() {
+    if !output.status.success() && output.stdout.is_empty() && output.stderr.is_empty() {
         return Err(anyhow!("`{program}` exited {}", output.status));
     }
-    Ok(text)
+    Ok((output.stdout, output.stderr))
 }
 
 fn try_active_sdk_dir(
