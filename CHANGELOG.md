@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-11
+
+### 修复
+
+- 首次启动读取 `wsl --version` 时按 UTF-16LE 解码。以前按 UTF-8 读，版本号被空字节拆开（日志里像 `W S L   Hr,g:   3 . 0 . 1 . 0`），已安装的 WSL 3.0.1.0 会被当成未检测到。3.0.1.0 满足 2.9.3+。
+  - First-launch `wsl --version` is decoded as UTF-16LE, so WSL 3.0.1.0 counts as 2.9.3 or newer.
+
 ## [0.1.1] - 2026-10-11
 
 ### 新增
@@ -38,6 +45,7 @@
 - 容器日志走 [`timeroute/wslc-rs`](https://github.com/timeroute/wslc-rs) 的 `LogsOptions`（`wslc --session wslc-desktop container logs`）。
   - Container logs use the `wslc-rs` fork rather than a separate CLI path.
 
-[Unreleased]: https://github.com/timeroute/wslc-desktop/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/timeroute/wslc-desktop/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/timeroute/wslc-desktop/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/timeroute/wslc-desktop/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/timeroute/wslc-desktop/releases/tag/v0.1.0
