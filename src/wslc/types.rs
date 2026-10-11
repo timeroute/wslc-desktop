@@ -116,11 +116,51 @@ pub enum PullEvent {
     Finished(Result<(), String>),
 }
 
+/// First-launch steps shown in the setup dialog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetupStepId {
+    WslVersion,
+    SdkInstall,
+}
+
+/// Why a setup step failed. The UI localizes the known variants.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(windows), allow(dead_code))]
+pub enum SetupFault {
+    /// `wsl --version` missing, failed, or unreadable.
+    WslMissing,
+    /// Parsed version is below 2.9.3.
+    WslTooOld { found: String },
+    /// This build is not running on Windows.
+    NotWindows,
+    /// Free-form failure (SDK download, extract, or session boot).
+    Message(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(windows), allow(dead_code))]
+pub enum SetupStepState {
+    Pending,
+    Running,
+    Passed { detail: String },
+    Failed(SetupFault),
+}
+
+impl SetupStepState {
+    pub fn is_failed(&self) -> bool {
+        matches!(self, Self::Failed(_))
+    }
+}
+
 /// Progress / log stream while installing or connecting the SDK.
 pub enum SdkSetupEvent {
     Status(String),
     Progress(f32),
     Log(String),
+    Step {
+        id: SetupStepId,
+        state: SetupStepState,
+    },
     Finished(Result<super::WslcClient, String>),
 }
 

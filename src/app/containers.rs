@@ -1,4 +1,3 @@
-
 use gpui_kit::component::{
     ActiveTheme, Disableable as _, IconName, Sizable as _, StyledExt as _,
     button::{Button, ButtonVariants as _},
@@ -12,14 +11,15 @@ use gpui_kit::*;
 
 use crate::i18n::{self};
 use crate::wslc::{
-    ContainerInfo, CreateContainerRequest,
+    ContainerInfo, ContainerTemplate, CreateContainerRequest, TemplateEditError, TemplateStore,
+    UpsertKind,
 };
 
-use super::state::{ConfirmAction, PullPhase};
 use super::AppView;
 use super::parsing::{parse_bind_mounts, parse_named_volumes, parse_port_mappings};
+use super::state::{ConfirmAction, PullPhase};
 use super::widgets::{
-    list_header, modal_panel, modal_scrim, resource_list, resource_row, row_actions,
+    list_header, modal_panel, modal_scrim, resource_list, resource_row, row_actions, settings_card,
 };
 
 impl AppView {
@@ -51,6 +51,186 @@ impl AppView {
         self.create_auto_remove = false;
     }
 
+    fn reset_template_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.template_save_open = false;
+        self.template_renaming = None;
+        self.template_banner = None;
+        self.template_banner_error = false;
+        self.template_name_input.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+        });
+        self.template_rename_input.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+        });
+    }
+
+    fn set_template_banner(
+        &mut self,
+        error: bool,
+        text: impl Into<SharedString>,
+        cx: &mut Context<Self>,
+    ) {
+        self.template_banner_error = error;
+        self.template_banner = Some(text.into());
+        cx.notify();
+    }
+
+    fn template_edit_error(&self, err: TemplateEditError, name: &str) -> String {
+        let t = self.t();
+        match err {
+            TemplateEditError::EmptyName => t.template_name_empty.to_string(),
+            TemplateEditError::NameTooLong => t.template_name_too_long.to_string(),
+            TemplateEditError::NameTaken => i18n::fmt1(t.template_name_taken, "name", name),
+            TemplateEditError::Missing => t.template_missing.to_string(),
+        }
+    }
+
+    fn persist_templates(&mut self, next: TemplateStore) -> Result<(), String> {
+        next.save()?;
+        self.templates = next;
+        Ok(())
+    }
+
+    fn current_template(&self, name: String, cx: &Context<Self>) -> ContainerTemplate {
+        ContainerTemplate {
+            name,
+            image: self.image_input.read(cx).value().trim().to_string(),
+            container_name: self.name_input.read(cx).value().trim().to_string(),
+            ports: self.ports_input.read(cx).value().trim().to_string(),
+            bind_mounts: self.bind_mounts_input.read(cx).value().trim().to_string(),
+            named_volumes: self.named_volumes_input.read(cx).value().trim().to_string(),
+            auto_remove: self.create_auto_remove,
+            command: self.command_input.read(cx).value().trim().to_string(),
+        }
+    }
+
+    fn save_current_as_template(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let raw_name = self.template_name_input.read(cx).value().to_string();
+        let draft = self.current_template(raw_name, cx);
+        let mut next = self.templates.clone();
+        match next.upsert(draft) {
+            Ok((kind, name)) => match self.persist_templates(next) {
+                Ok(()) => {
+                    self.template_save_open = false;
+                    let template = match kind {
+                        UpsertKind::Created => self.t().template_saved,
+                        UpsertKind::Updated => self.t().template_updated,
+                    };
+                    self.set_template_banner(false, i18n::fmt1(template, "name", &name), cx);
+                }
+                Err(err) => {
+                    self.set_template_banner(
+                        true,
+                        i18n::fmt1(self.t().template_save_failed, "err", err),
+                        cx,
+                    );
+                }
+            },
+            Err(err) => {
+                let text = self.template_edit_error(err, "");
+                self.set_template_banner(true, text, cx);
+            }
+        }
+    }
+
+    fn fill_template(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(template) = self
+            .templates
+            .templates
+            .iter()
+            .find(|t| t.name == name)
+            .cloned()
+        else {
+            self.set_template_banner(true, self.t().template_missing, cx);
+            return;
+        };
+        let image = template.image.clone();
+        let container_name = template.container_name.clone();
+        let ports = template.ports.clone();
+        let bind_mounts = template.bind_mounts.clone();
+        let named_volumes = template.named_volumes.clone();
+        let command = template.command.clone();
+        self.image_input.update(cx, |state, cx| {
+            state.set_value(image, window, cx);
+        });
+        self.name_input.update(cx, |state, cx| {
+            state.set_value(container_name, window, cx);
+        });
+        self.ports_input.update(cx, |state, cx| {
+            state.set_value(ports, window, cx);
+        });
+        self.bind_mounts_input.update(cx, |state, cx| {
+            state.set_value(bind_mounts, window, cx);
+        });
+        self.named_volumes_input.update(cx, |state, cx| {
+            state.set_value(named_volumes, window, cx);
+        });
+        self.command_input.update(cx, |state, cx| {
+            state.set_value(command, window, cx);
+        });
+        self.create_auto_remove = template.auto_remove;
+        self.set_template_banner(
+            false,
+            i18n::fmt1(self.t().template_filled, "name", &template.name),
+            cx,
+        );
+    }
+
+    fn commit_rename_template(&mut self, from: String, cx: &mut Context<Self>) {
+        let to = self.template_rename_input.read(cx).value().to_string();
+        let mut next = self.templates.clone();
+        match next.rename(&from, &to) {
+            Ok(renamed_to) => match self.persist_templates(next) {
+                Ok(()) => {
+                    self.template_renaming = None;
+                    self.set_template_banner(
+                        false,
+                        i18n::fmt1(self.t().template_renamed, "name", &renamed_to),
+                        cx,
+                    );
+                }
+                Err(err) => {
+                    self.set_template_banner(
+                        true,
+                        i18n::fmt1(self.t().template_save_failed, "err", err),
+                        cx,
+                    );
+                }
+            },
+            Err(err) => {
+                let text = self.template_edit_error(err, to.trim());
+                self.set_template_banner(true, text, cx);
+            }
+        }
+    }
+
+    fn delete_template(&mut self, name: String, cx: &mut Context<Self>) {
+        let mut next = self.templates.clone();
+        if !next.remove(&name) {
+            self.set_template_banner(true, self.t().template_missing, cx);
+            return;
+        }
+        match self.persist_templates(next) {
+            Ok(()) => {
+                if self.template_renaming.as_deref() == Some(name.as_str()) {
+                    self.template_renaming = None;
+                }
+                self.set_template_banner(
+                    false,
+                    i18n::fmt1(self.t().template_deleted, "name", &name),
+                    cx,
+                );
+            }
+            Err(err) => {
+                self.set_template_banner(
+                    true,
+                    i18n::fmt1(self.t().template_save_failed, "err", err),
+                    cx,
+                );
+            }
+        }
+    }
+
     pub(crate) fn open_create_modal(
         &mut self,
         prefill_image: Option<String>,
@@ -61,6 +241,7 @@ impl AppView {
             return;
         }
         self.reset_create_form(window, cx);
+        self.reset_template_editor(window, cx);
         if let Some(image) = prefill_image {
             self.image_input.update(cx, |state, cx| {
                 state.set_value(&image, window, cx);
@@ -70,16 +251,13 @@ impl AppView {
         cx.notify();
     }
 
-    pub(crate) fn dismiss_create_modal(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn dismiss_create_modal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy {
             return;
         }
         self.create_modal_open = false;
         self.reset_create_form(window, cx);
+        self.reset_template_editor(window, cx);
         cx.notify();
     }
 
@@ -90,11 +268,7 @@ impl AppView {
         cx.notify();
     }
 
-    pub(crate) fn submit_create_container(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn submit_create_container(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         if self.sdk_locked() || self.busy || self.pull_phase == PullPhase::Pulling {
             return;
         }
@@ -196,7 +370,12 @@ impl AppView {
         });
     }
 
-    pub(crate) fn open_exec_modal(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn open_exec_modal(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.ops_disabled() {
             return;
         }
@@ -283,17 +462,11 @@ impl AppView {
                     .w_full()
                     .items_start()
                     .gap_3()
-                    .child(
-                        div()
-                            .mt_1()
-                            .size_2()
-                            .rounded_full()
-                            .bg(if running {
-                                cx.theme().green
-                            } else {
-                                cx.theme().muted_foreground.opacity(0.5)
-                            }),
-                    )
+                    .child(div().mt_1().size_2().rounded_full().bg(if running {
+                        cx.theme().green
+                    } else {
+                        cx.theme().muted_foreground.opacity(0.5)
+                    }))
                     .child(
                         v_flex()
                             .flex_1()
@@ -514,127 +687,325 @@ impl AppView {
                             })),
                     ),
             ))
-            .child(
-                resource_list("container-list").child({
-                    if self.containers.is_empty() {
-                        v_flex().gap_1().w_full().child(self.empty_state(
-                            t.no_containers_title,
-                            t.no_containers_detail,
-                            cx,
-                        ))
-                    } else {
-                        let rows: Vec<_> = self
-                            .containers
-                            .iter()
-                            .enumerate()
-                            .map(|(index, item)| {
-                                self.render_container_row(index, item, cx).into_any_element()
-                            })
-                            .collect();
-                        v_flex().gap_1().w_full().children(rows)
-                    }
-                }),
-            )
+            .child(resource_list("container-list").child({
+                if self.containers.is_empty() {
+                    v_flex().gap_1().w_full().child(self.empty_state(
+                        t.no_containers_title,
+                        t.no_containers_detail,
+                        cx,
+                    ))
+                } else {
+                    let rows: Vec<_> = self
+                        .containers
+                        .iter()
+                        .enumerate()
+                        .map(|(index, item)| {
+                            self.render_container_row(index, item, cx)
+                                .into_any_element()
+                        })
+                        .collect();
+                    v_flex().gap_1().w_full().children(rows)
+                }
+            }))
     }
+    fn render_template_section(&self, creating: bool, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = self.t();
+        let templates = self.templates.templates.clone();
+        let renaming = self.template_renaming.clone();
+        let banner = self.template_banner.clone();
+        let banner_error = self.template_banner_error;
+        let banner_color = if banner_error {
+            cx.theme().red
+        } else {
+            cx.theme().muted_foreground
+        };
+
+        let rows: Vec<AnyElement> = if templates.is_empty() {
+            vec![
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(t.template_empty)
+                    .into_any_element(),
+            ]
+        } else {
+            templates
+                .iter()
+                .enumerate()
+                .map(|(index, template)| {
+                    let name = template.name.clone();
+                    let image = template.image.clone();
+                    let is_renaming = renaming.as_deref() == Some(name.as_str());
+                    if is_renaming {
+                        let original = name.clone();
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .child(Input::new(&self.template_rename_input)),
+                            )
+                            .child(
+                                Button::new(("tpl-rename-save", index))
+                                    .small()
+                                    .primary()
+                                    .label(t.template_save_confirm)
+                                    .disabled(creating)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.commit_rename_template(original.clone(), cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new(("tpl-rename-cancel", index))
+                                    .small()
+                                    .label(t.cancel)
+                                    .disabled(creating)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.template_renaming = None;
+                                        cx.notify();
+                                    })),
+                            )
+                            .into_any_element()
+                    } else {
+                        let fill_name = name.clone();
+                        let rename_name = name.clone();
+                        let delete_name = name.clone();
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(
+                                v_flex()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .child(div().text_sm().truncate().child(name))
+                                    .when(!image.is_empty(), |col| {
+                                        col.child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .truncate()
+                                                .child(image),
+                                        )
+                                    }),
+                            )
+                            .child(
+                                Button::new(("tpl-fill", index))
+                                    .small()
+                                    .label(t.template_apply)
+                                    .disabled(creating)
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.fill_template(&fill_name, window, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new(("tpl-rename", index))
+                                    .small()
+                                    .ghost()
+                                    .label(t.template_rename)
+                                    .disabled(creating)
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        let current = rename_name.clone();
+                                        this.template_renaming = Some(current.clone());
+                                        this.template_rename_input.update(cx, |state, cx| {
+                                            state.set_value(current, window, cx);
+                                        });
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                Button::new(("tpl-delete", index))
+                                    .small()
+                                    .danger()
+                                    .label(t.template_delete)
+                                    .disabled(creating)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.delete_template(delete_name.clone(), cx);
+                                    })),
+                            )
+                            .into_any_element()
+                    }
+                })
+                .collect()
+        };
+
+        settings_card(cx)
+            .child(div().text_sm().font_medium().child(t.template_section))
+            .child(
+                div()
+                    .id("create-template-list")
+                    .w_full()
+                    .max_h(px(160.))
+                    .overflow_y_scroll()
+                    .child(v_flex().gap_2().w_full().children(rows)),
+            )
+            .when_some(banner, |card, text| {
+                card.child(div().text_xs().text_color(banner_color).child(text))
+            })
+    }
+
     pub(crate) fn render_create_modal(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = self.t();
         let creating = self.busy && self.create_modal_open;
         let auto_remove = self.create_auto_remove;
+        let save_open = self.template_save_open;
+        let template_section = self
+            .render_template_section(creating, cx)
+            .into_any_element();
 
         modal_scrim(
             "create-container-modal",
             cx,
             modal_panel(cx)
+                .id("create-container-panel")
                 .w(px(560.))
-                .max_h(px(640.))
-                    .child(div().font_semibold().text_base().child(t.create_container_title))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(t.create_container_intro),
-                    )
-                    .child(
+                .max_h(px(720.))
+                .overflow_y_scroll()
+                .child(
+                    div()
+                        .font_semibold()
+                        .text_base()
+                        .child(t.create_container_title),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(t.create_container_intro),
+                )
+                .child(template_section)
+                .child(
+                    v_flex()
+                        .gap_2()
+                        .child(Label::new(t.image_label))
+                        .child(Input::new(&self.image_input)),
+                )
+                .child(
+                    v_flex()
+                        .gap_2()
+                        .child(Label::new(t.name_optional))
+                        .child(Input::new(&self.name_input)),
+                )
+                .child(
+                    v_flex()
+                        .gap_2()
+                        .child(Label::new(t.ports_label))
+                        .child(Input::new(&self.ports_input)),
+                )
+                .child(
+                    v_flex()
+                        .gap_2()
+                        .child(Label::new(t.bind_mounts_label))
+                        .child(Input::new(&self.bind_mounts_input)),
+                )
+                .child(
+                    v_flex()
+                        .gap_2()
+                        .child(Label::new(t.named_volumes_label))
+                        .child(Input::new(&self.named_volumes_input)),
+                )
+                .child(
+                    h_flex()
+                        .items_center()
+                        .justify_between()
+                        .child(Label::new(t.auto_remove_label))
+                        .child(
+                            Button::new("create-auto-remove")
+                                .small()
+                                .label(if auto_remove {
+                                    t.auto_remove_on
+                                } else {
+                                    t.auto_remove_off
+                                })
+                                .when(auto_remove, |b| b.primary())
+                                .disabled(creating)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.create_auto_remove = !this.create_auto_remove;
+                                    cx.notify();
+                                })),
+                        ),
+                )
+                .child(
+                    v_flex()
+                        .gap_2()
+                        .child(Label::new(t.command_label))
+                        .child(Input::new(&self.command_input)),
+                )
+                .when(save_open, |panel| {
+                    panel.child(
                         v_flex()
                             .gap_2()
-                            .child(Label::new(t.image_label))
-                            .child(Input::new(&self.image_input)),
-                    )
-                    .child(
-                        v_flex()
-                            .gap_2()
-                            .child(Label::new(t.name_optional))
-                            .child(Input::new(&self.name_input)),
-                    )
-                    .child(
-                        v_flex()
-                            .gap_2()
-                            .child(Label::new(t.ports_label))
-                            .child(Input::new(&self.ports_input)),
-                    )
-                    .child(
-                        v_flex()
-                            .gap_2()
-                            .child(Label::new(t.bind_mounts_label))
-                            .child(Input::new(&self.bind_mounts_input)),
-                    )
-                    .child(
-                        v_flex()
-                            .gap_2()
-                            .child(Label::new(t.named_volumes_label))
-                            .child(Input::new(&self.named_volumes_input)),
-                    )
-                    .child(
-                        h_flex()
-                            .items_center()
-                            .justify_between()
-                            .child(Label::new(t.auto_remove_label))
+                            .child(Label::new(t.template_name_label))
+                            .child(Input::new(&self.template_name_input))
                             .child(
-                                Button::new("create-auto-remove")
-                                    .small()
-                                    .label(if auto_remove {
-                                        t.auto_remove_on
-                                    } else {
-                                        t.auto_remove_off
-                                    })
-                                    .when(auto_remove, |b| b.primary())
+                                h_flex()
+                                    .gap_2()
+                                    .justify_end()
+                                    .child(
+                                        Button::new("template-save-cancel")
+                                            .small()
+                                            .label(t.cancel)
+                                            .disabled(creating)
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.template_save_open = false;
+                                                cx.notify();
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("template-save-confirm")
+                                            .small()
+                                            .primary()
+                                            .label(t.template_save_confirm)
+                                            .disabled(creating)
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.save_current_as_template(window, cx);
+                                            })),
+                                    ),
+                            ),
+                    )
+                })
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .justify_end()
+                        .when(!save_open, |row| {
+                            row.child(
+                                Button::new("template-save-open")
+                                    .label(t.template_save)
                                     .disabled(creating)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.create_auto_remove = !this.create_auto_remove;
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.template_save_open = true;
+                                        this.template_name_input.update(cx, |state, cx| {
+                                            state.set_value("", window, cx);
+                                        });
                                         cx.notify();
                                     })),
-                            ),
-                    )
-                    .child(
-                        v_flex()
-                            .gap_2()
-                            .child(Label::new(t.command_label))
-                            .child(Input::new(&self.command_input)),
-                    )
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .justify_end()
-                            .child(
-                                Button::new("create-cancel")
-                                    .label(t.close)
-                                    .disabled(creating)
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.dismiss_create_modal(window, cx);
-                                    })),
                             )
-                            .child(
-                                Button::new("create-submit")
-                                    .primary()
-                                    .label(if creating { t.working } else { t.create })
-                                    .icon(IconName::Plus)
-                                    .disabled(self.sdk_locked() || creating || self.pull_phase == PullPhase::Pulling)
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.submit_create_container(window, cx);
-                                    })),
-                            ),
-                    ),
-            )
+                        })
+                        .child(
+                            Button::new("create-cancel")
+                                .label(t.close)
+                                .disabled(creating)
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.dismiss_create_modal(window, cx);
+                                })),
+                        )
+                        .child(
+                            Button::new("create-submit")
+                                .primary()
+                                .label(if creating { t.working } else { t.create })
+                                .icon(IconName::Plus)
+                                .disabled(
+                                    self.sdk_locked()
+                                        || creating
+                                        || self.pull_phase == PullPhase::Pulling,
+                                )
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.submit_create_container(window, cx);
+                                })),
+                        ),
+                ),
+        )
     }
 
     pub(crate) fn render_exec_modal(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -645,12 +1016,20 @@ impl AppView {
             cx,
             modal_panel(cx)
                 .w(px(520.))
-                .child(div().font_semibold().text_base().child(t.container_exec_title))
+                .child(
+                    div()
+                        .font_semibold()
+                        .text_base()
+                        .child(t.container_exec_title),
+                )
                 .child(
                     div()
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
-                        .child(format!("{} · {}", t.container_exec_intro, self.exec_target_key)),
+                        .child(format!(
+                            "{} · {}",
+                            t.container_exec_intro, self.exec_target_key
+                        )),
                 )
                 .child(Input::new(&self.exec_input))
                 .child(
@@ -670,7 +1049,11 @@ impl AppView {
                             Button::new("exec-run")
                                 .small()
                                 .primary()
-                                .label(if running { t.working } else { t.container_exec_run })
+                                .label(if running {
+                                    t.working
+                                } else {
+                                    t.container_exec_run
+                                })
                                 .disabled(self.sdk_locked() || running)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.submit_exec(cx);
@@ -701,49 +1084,47 @@ impl AppView {
             modal_panel(cx)
                 .w(px(640.))
                 .max_h(px(520.))
-                    .child(
-                        h_flex()
-                            .items_center()
-                            .justify_between()
-                            .child(div().font_semibold().text_base().child(heading))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .truncate()
-                                    .child(self.logs_title.clone()),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .id("container-logs-body")
-                            .h(px(320.))
-                            .w_full()
-                            .overflow_y_scroll()
-                            .rounded(cx.theme().radius)
-                            .border_1()
-                            .border_color(cx.theme().border)
-                            .bg(cx.theme().background.opacity(0.65))
-                            .p_2()
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .font_family("monospace")
-                                    .text_color(cx.theme().foreground)
-                                    .child(body),
-                            ),
-                    )
-                    .child(
-                        h_flex()
-                            .justify_end()
-                            .child(
-                                Button::new("logs-modal-close")
-                                    .label(t.close)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.dismiss_logs_modal(cx);
-                                    })),
-                            ),
+                .child(
+                    h_flex()
+                        .items_center()
+                        .justify_between()
+                        .child(div().font_semibold().text_base().child(heading))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .truncate()
+                                .child(self.logs_title.clone()),
+                        ),
+                )
+                .child(
+                    div()
+                        .id("container-logs-body")
+                        .h(px(320.))
+                        .w_full()
+                        .overflow_y_scroll()
+                        .rounded(cx.theme().radius)
+                        .border_1()
+                        .border_color(cx.theme().border)
+                        .bg(cx.theme().background.opacity(0.65))
+                        .p_2()
+                        .child(
+                            div()
+                                .text_xs()
+                                .font_family("monospace")
+                                .text_color(cx.theme().foreground)
+                                .child(body),
+                        ),
+                )
+                .child(
+                    h_flex().justify_end().child(
+                        Button::new("logs-modal-close")
+                            .label(t.close)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.dismiss_logs_modal(cx);
+                            })),
                     ),
-            )
+                ),
+        )
     }
 }

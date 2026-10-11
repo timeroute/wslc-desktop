@@ -3,25 +3,34 @@
 //! There is no CLI path and no demo mode. The app must obtain a live SDK session
 //! (download/cache `wslcsdk.dll`, then open a Session) before any operations.
 
-use std::sync::mpsc::Sender;
 use std::sync::Arc;
+use std::sync::mpsc::Sender;
 use std::thread;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
 mod catalog;
 #[cfg(windows)]
 mod live;
+mod paths;
 mod prefs;
 #[cfg(windows)]
 mod sdk_fetch;
 mod sdk_version;
+pub mod setup_log;
 #[cfg(windows)]
 mod syspath;
+pub mod templates;
 mod types;
 
 pub use prefs::SessionPrefs;
+pub use templates::{ContainerTemplate, TemplateEditError, TemplateStore, UpsertKind};
 pub use types::*;
+
+/// Minimum WSL release the first-launch check accepts (`2.9.3`).
+pub fn min_wsl_version_text() -> String {
+    sdk_version::MIN_WSL_VERSION.to_string()
+}
 
 pub(super) fn split_ref(reference: &str) -> (String, String) {
     if let Some((repo, tag)) = reference.rsplit_once(':') {
@@ -95,6 +104,10 @@ impl WslcClient {
                 "This build is not Windows; the WSL Containers SDK cannot load.".into(),
             ));
             let _ = tx.send(SdkSetupEvent::Progress(0.0));
+            let _ = tx.send(SdkSetupEvent::Step {
+                id: SetupStepId::WslVersion,
+                state: SetupStepState::Failed(SetupFault::NotWindows),
+            });
             let _ = tx.send(SdkSetupEvent::Finished(Err(
                 "WSLc Desktop only runs on Windows with WSL Containers".into(),
             )));
@@ -108,6 +121,14 @@ impl WslcClient {
 
     #[cfg(windows)]
     fn run_setup_windows(force_redownload: bool, tx: Sender<SdkSetupEvent>) {
+        if !Self::check_wsl_version(&tx) {
+            return;
+        }
+
+        let _ = tx.send(SdkSetupEvent::Step {
+            id: SetupStepId::SdkInstall,
+            state: SetupStepState::Running,
+        });
         let _ = tx.send(SdkSetupEvent::Status(
             "Preparing WSL Containers SDK…".into(),
         ));
@@ -139,11 +160,14 @@ impl WslcClient {
                 preferred.push(dir);
             }
             Err(err) => {
-                let _ = tx.send(SdkSetupEvent::Log(format!("SDK install failed: {err:#}")));
+                let message = format!("SDK install failed: {err:#}");
+                let _ = tx.send(SdkSetupEvent::Log(message.clone()));
                 let _ = tx.send(SdkSetupEvent::Progress(0.0));
-                let _ = tx.send(SdkSetupEvent::Finished(Err(format!(
-                    "SDK install failed: {err:#}"
-                ))));
+                let _ = tx.send(SdkSetupEvent::Step {
+                    id: SetupStepId::SdkInstall,
+                    state: SetupStepState::Failed(SetupFault::Message(message.clone())),
+                });
+                let _ = tx.send(SdkSetupEvent::Finished(Err(message)));
                 return;
             }
         }
@@ -163,16 +187,90 @@ impl WslcClient {
                 )));
                 let _ = tx.send(SdkSetupEvent::Progress(100.0));
                 let _ = tx.send(SdkSetupEvent::Status("Connected".into()));
+                let _ = tx.send(SdkSetupEvent::Step {
+                    id: SetupStepId::SdkInstall,
+                    state: SetupStepState::Passed {
+                        detail: version.clone(),
+                    },
+                });
                 let _ = tx.send(SdkSetupEvent::Finished(Ok(Self::from_live(
                     cmd_tx, version,
                 ))));
             }
             Err(detail) => {
-                let _ = tx.send(SdkSetupEvent::Log(format!(
-                    "Live session failed: {detail}"
-                )));
+                let _ = tx.send(SdkSetupEvent::Log(format!("Live session failed: {detail}")));
                 let _ = tx.send(SdkSetupEvent::Progress(0.0));
+                let _ = tx.send(SdkSetupEvent::Step {
+                    id: SetupStepId::SdkInstall,
+                    state: SetupStepState::Failed(SetupFault::Message(detail.clone())),
+                });
                 let _ = tx.send(SdkSetupEvent::Finished(Err(detail)));
+            }
+        }
+    }
+
+    /// Returns false when setup must stop (event stream already finished).
+    #[cfg(windows)]
+    fn check_wsl_version(tx: &Sender<SdkSetupEvent>) -> bool {
+        let _ = tx.send(SdkSetupEvent::Step {
+            id: SetupStepId::WslVersion,
+            state: SetupStepState::Running,
+        });
+        let _ = tx.send(SdkSetupEvent::Status("Checking WSL version…".into()));
+        let _ = tx.send(SdkSetupEvent::Progress(4.0));
+        let required = sdk_version::MIN_WSL_VERSION;
+        let _ = tx.send(SdkSetupEvent::Log(format!(
+            "Checking WSL version (require {required} or newer)…"
+        )));
+
+        let output = sdk_fetch::probe_wsl_version_output();
+        if let Some(out) = &output {
+            for line in out.lines() {
+                let line = line.trim();
+                if !line.is_empty() {
+                    let _ = tx.send(SdkSetupEvent::Log(format!("wsl: {line}")));
+                }
+            }
+        } else {
+            let _ = tx.send(SdkSetupEvent::Log(
+                "wsl --version produced no output (is WSL installed and on PATH?)".into(),
+            ));
+        }
+
+        match sdk_version::judge_wsl_version(output.as_deref()) {
+            sdk_version::WslVersionVerdict::Ok(version) => {
+                let _ = tx.send(SdkSetupEvent::Log(format!(
+                    "WSL {version} meets the {required}+ requirement"
+                )));
+                let _ = tx.send(SdkSetupEvent::Step {
+                    id: SetupStepId::WslVersion,
+                    state: SetupStepState::Passed { detail: version },
+                });
+                true
+            }
+            sdk_version::WslVersionVerdict::Missing => {
+                let _ = tx.send(SdkSetupEvent::Progress(0.0));
+                let _ = tx.send(SdkSetupEvent::Step {
+                    id: SetupStepId::WslVersion,
+                    state: SetupStepState::Failed(SetupFault::WslMissing),
+                });
+                let _ = tx.send(SdkSetupEvent::Finished(Err(
+                    "WSL is missing or its version could not be read".into(),
+                )));
+                false
+            }
+            sdk_version::WslVersionVerdict::TooOld { found } => {
+                let _ = tx.send(SdkSetupEvent::Progress(0.0));
+                let _ = tx.send(SdkSetupEvent::Step {
+                    id: SetupStepId::WslVersion,
+                    state: SetupStepState::Failed(SetupFault::WslTooOld {
+                        found: found.clone(),
+                    }),
+                });
+                let _ = tx.send(SdkSetupEvent::Finished(Err(format!(
+                    "WSL {found} is older than {required}"
+                ))));
+                false
             }
         }
     }
@@ -187,24 +285,21 @@ impl WslcClient {
                         return status;
                     }
                 }
-                EngineStatus::unavailable(format!(
-                    "SDK session became unavailable (was {version})"
-                ))
+                EngineStatus::unavailable(format!("SDK session became unavailable (was {version})"))
             }
             #[cfg(not(windows))]
-            Backend::Unsupported => EngineStatus::unavailable(
-                "WSLc Desktop only runs on Windows with WSL Containers",
-            ),
+            Backend::Unsupported => {
+                EngineStatus::unavailable("WSLc Desktop only runs on Windows with WSL Containers")
+            }
         }
     }
 
     pub fn list_containers(&self, all: bool) -> Result<Vec<ContainerInfo>> {
         match &self.inner.backend {
             #[cfg(windows)]
-            Backend::Live { tx, .. } => live::call(tx, |reply| live::Cmd::ListContainers {
-                all,
-                reply,
-            }),
+            Backend::Live { tx, .. } => {
+                live::call(tx, |reply| live::Cmd::ListContainers { all, reply })
+            }
             #[cfg(not(windows))]
             Backend::Unsupported => Err(anyhow!("WSL Containers SDK unavailable")),
         }
@@ -416,7 +511,7 @@ impl WslcClient {
             #[cfg(not(windows))]
             Backend::Unsupported => {
                 let _ = tx.send(PullEvent::Finished(Err(
-                    "WSL Containers SDK unavailable".into(),
+                    "WSL Containers SDK unavailable".into()
                 )));
             }
         }

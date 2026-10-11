@@ -1,18 +1,13 @@
 use std::sync::mpsc::Receiver;
 
-use gpui_kit::component::{
-    ActiveTheme, ThemeMode,
-    h_flex,
-    input::InputState,
-    v_flex,
-};
+use gpui_kit::component::{ActiveTheme, ThemeMode, h_flex, input::InputState, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::i18n::Locale;
 use crate::wslc::{
-    ContainerInfo, EngineStatus, ImageInfo, PullEvent, SdkSetupEvent, SessionPrefs, VolumeInfo,
-    WslcClient,
+    ContainerInfo, EngineStatus, ImageInfo, PullEvent, SdkSetupEvent, SessionPrefs, SetupStepState,
+    TemplateStore, VolumeInfo, WslcClient,
 };
 
 mod confirm;
@@ -57,10 +52,17 @@ pub struct AppView {
     bind_mounts_input: Entity<InputState>,
     named_volumes_input: Entity<InputState>,
     command_input: Entity<InputState>,
+    template_name_input: Entity<InputState>,
+    template_rename_input: Entity<InputState>,
     pull_input: Entity<InputState>,
     volume_input: Entity<InputState>,
     exec_input: Entity<InputState>,
     create_auto_remove: bool,
+    templates: TemplateStore,
+    template_save_open: bool,
+    template_renaming: Option<String>,
+    template_banner_error: bool,
+    template_banner: Option<SharedString>,
     volume_size_gib: u32,
     session_prefs: SessionPrefs,
     pull_modal_open: bool,
@@ -85,6 +87,11 @@ pub struct AppView {
     sdk_setup_logs: Vec<SharedString>,
     sdk_setup_rx: Option<Receiver<SdkSetupEvent>>,
     sdk_setup_poll_generation: u64,
+    wsl_step: SetupStepState,
+    sdk_step: SetupStepState,
+    sdk_logs_open: bool,
+    sdk_logs_copied: bool,
+    sdk_log_error: Option<SharedString>,
 }
 
 impl AppView {
@@ -99,20 +106,18 @@ impl AppView {
                 .placeholder("nginx:alpine")
                 .default_value("nginx:alpine")
         });
-        let name_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder(t.name_placeholder));
-        let ports_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder(t.ports_placeholder)
-        });
-        let bind_mounts_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder(t.bind_mounts_placeholder)
-        });
-        let named_volumes_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder(t.named_volumes_placeholder)
-        });
-        let command_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder(t.command_placeholder)
-        });
+        let name_input = cx.new(|cx| InputState::new(window, cx).placeholder(t.name_placeholder));
+        let ports_input = cx.new(|cx| InputState::new(window, cx).placeholder(t.ports_placeholder));
+        let bind_mounts_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t.bind_mounts_placeholder));
+        let named_volumes_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t.named_volumes_placeholder));
+        let command_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t.command_placeholder));
+        let template_name_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t.template_name_placeholder));
+        let template_rename_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t.template_name_placeholder));
         let pull_input = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("library/alpine:latest")
@@ -150,10 +155,17 @@ impl AppView {
             bind_mounts_input,
             named_volumes_input,
             command_input,
+            template_name_input,
+            template_rename_input,
             pull_input,
             volume_input,
             exec_input,
             create_auto_remove: false,
+            templates: TemplateStore::load(),
+            template_save_open: false,
+            template_renaming: None,
+            template_banner_error: false,
+            template_banner: None,
             volume_size_gib: 1,
             session_prefs,
             pull_modal_open: false,
@@ -177,6 +189,11 @@ impl AppView {
             sdk_setup_logs: Vec::new(),
             sdk_setup_rx: None,
             sdk_setup_poll_generation: 0,
+            wsl_step: SetupStepState::Pending,
+            sdk_step: SetupStepState::Pending,
+            sdk_logs_open: false,
+            sdk_logs_copied: false,
+            sdk_log_error: None,
         };
         view.begin_sdk_setup(false, cx);
         view
@@ -191,58 +208,51 @@ impl Render for AppView {
             .size_full()
             .bg(cx.theme().background)
             .child(
-                h_flex()
-                    .size_full()
-                    .child(self.render_sidebar(cx))
-                    .child(
-                        v_flex()
-                            .size_full()
-                            .min_w_0()
-                            .child(self.render_title_bar(cx))
-                            .child(
-                                v_flex()
-                                    .flex_1()
-                                    .min_h_0()
-                                    .p_4()
-                                    .gap_4()
-                                    .child(self.render_toolbar(cx))
-                                    .child(
-                                        div().id("section").flex_1().min_h_0().map(|panel| {
-                                            match self.section {
-                                                Section::Overview => {
-                                                    panel.child(self.render_overview(cx))
-                                                }
-                                                Section::Containers => {
-                                                    panel.child(self.render_containers(cx))
-                                                }
-                                                Section::Images => {
-                                                    panel.child(self.render_images(cx))
-                                                }
-                                                Section::Volumes => {
-                                                    panel.child(self.render_volumes(cx))
-                                                }
-                                                Section::Settings => {
-                                                    panel.child(self.render_settings(cx))
-                                                }
-                                            }
-                                        }),
-                                    ),
-                            )
-                            .child(self.render_status_bar(cx)),
-                    ),
+                h_flex().size_full().child(self.render_sidebar(cx)).child(
+                    v_flex()
+                        .size_full()
+                        .min_w_0()
+                        .child(self.render_title_bar(cx))
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .min_h_0()
+                                .p_4()
+                                .gap_4()
+                                .child(self.render_toolbar(cx))
+                                .child(div().id("section").flex_1().min_h_0().map(|panel| {
+                                    match self.section {
+                                        Section::Overview => panel.child(self.render_overview(cx)),
+                                        Section::Containers => {
+                                            panel.child(self.render_containers(cx))
+                                        }
+                                        Section::Images => panel.child(self.render_images(cx)),
+                                        Section::Volumes => panel.child(self.render_volumes(cx)),
+                                        Section::Settings => panel.child(self.render_settings(cx)),
+                                    }
+                                })),
+                        )
+                        .child(self.render_status_bar(cx)),
+                ),
             )
             .when(show_setup, |root| {
                 root.child(self.render_sdk_setup_modal(cx))
             })
-            .when(self.pull_modal_open, |root| root.child(self.render_pull_modal(cx)))
+            .when(self.pull_modal_open, |root| {
+                root.child(self.render_pull_modal(cx))
+            })
             .when(self.create_modal_open, |root| {
                 root.child(self.render_create_modal(cx))
             })
             .when(self.volume_modal_open, |root| {
                 root.child(self.render_volume_modal(cx))
             })
-            .when(self.logs_modal_open, |root| root.child(self.render_logs_modal(cx)))
-            .when(self.exec_modal_open, |root| root.child(self.render_exec_modal(cx)))
+            .when(self.logs_modal_open, |root| {
+                root.child(self.render_logs_modal(cx))
+            })
+            .when(self.exec_modal_open, |root| {
+                root.child(self.render_exec_modal(cx))
+            })
             .when(self.confirm.is_some(), |root| {
                 root.child(self.render_confirm_modal(cx))
             })
