@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Paste this into the SignPath project as artifact configuration slug: release
+
+  GitHub Actions uploads a ZIP (upload-artifact default), so the root is zip-file.
+  SignPath deep-signs bin/wslc-desktop.exe inside the MSI, then Authenticode-signs the MSI.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <zip-file>
+    <msi-file path="WSLc.Desktop-*.msi" subject="WSLc Desktop" author="WSLc Desktop">
+      <pe-file
+          path="bin/wslc-desktop.exe"
+          product-name="WSLc Desktop"
+          product-version="${version}"
+          file-version="${version}"
+          company-name="WSLc Desktop"
+          copyright="Copyright WSLc Desktop contributors"
+          original-filename="wslc-desktop.exe">
+        <authenticode-sign hash-algorithm="sha256" />
+      </pe-file>
+      <authenticode-sign hash-algorithm="sha256" />
+    </msi-file>
+  </zip-file>
+</artifact-configuration>

@@ -11,6 +11,9 @@ repository = "https://github.com/timeroute/wslc-desktop"
 homepage = "https://timeroute.github.io/wslc-desktop-website/"
 authors = ["WSLc Desktop Contributors"]
 
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
+
 [package.metadata.wix]
 # Used by `cargo wix` on Windows to produce target/wix/*.msi
 name = "WSLc Desktop"

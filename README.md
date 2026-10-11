@@ -61,15 +61,34 @@ cargo wix
 
 ### 代码签名（降低 SmartScreen）
 
-未签名的 MSI/EXE 容易触发 Windows SmartScreen。发布流水线会在有证书时对 **EXE + MSI** 做 Authenticode 签名（SHA-256 + 时间戳）。
+未签名的 MSI/EXE 容易触发 Windows SmartScreen。发布流水线对 **EXE（MSI 内嵌）+ MSI** 做 Authenticode 签名。
 
-1. 向受信任 CA 申请 **Windows 代码签名证书**（OV 可签；**EV** 对新发布者抑制 SmartScreen 更有效，声誉建立也更快）
-2. 导出为 `.pfx`，在仓库 Settings → Secrets 添加：
-   - `WINDOWS_CODESIGN_PFX_BASE64`：`[Convert]::ToBase64String([IO.File]::ReadAllBytes('cert.pfx'))`
-   - `WINDOWS_CODESIGN_PASSWORD`：PFX 密码
-3. 可选 Variables：`WINDOWS_CODESIGN_TIMESTAMP_URL`（默认 `http://timestamp.digicert.com`）
+#### 推荐：SignPath Foundation（开源免费）
 
-本地签名（已有 release 二进制与 MSI 时）：
+1. 在 [signpath.org/apply](https://signpath.org/apply) 为本仓库申请 SignPath Foundation 免费代码签名（需 OSI 许可、公开仓库、已有 Release、团队 MFA 等，见 [条件](https://signpath.org/terms.html)）。
+2. 批准后在 SignPath：
+   - 启用 Trusted Build System：**GitHub.com**，并安装 SignPath GitHub App
+   - 创建 Project（建议 slug：`wslc-desktop`）
+   - 创建 Signing Policy（建议 slug：`release-signing`，发布需人工审批）
+   - 添加 Artifact Configuration，slug：`release`，XML 使用仓库内 [`.signpath/artifact-configurations/release.xml`](.signpath/artifact-configurations/release.xml)
+3. 仓库 Settings → Secrets and variables → Actions：
+
+| 类型 | 名称 | 说明 |
+|------|------|------|
+| Secret | `SIGNPATH_API_TOKEN` | SignPath → Profile → API Tokens（Submitter） |
+| Variable | `SIGNPATH_ORGANIZATION_ID` | 组织 ID（仪表盘 URL / 设置） |
+| Variable（可选） | `SIGNPATH_PROJECT_SLUG` | 默认 `wslc-desktop` |
+| Variable（可选） | `SIGNPATH_SIGNING_POLICY_SLUG` | 默认 `release-signing` |
+| Variable（可选） | `SIGNPATH_ARTIFACT_CONFIGURATION_SLUG` | 默认 `release` |
+
+`v*` tag 会上传未签名 MSI → 提交 SignPath → **在 SignPath 控制台批准** → CI 下载已签名 MSI 并创建 Release（等待审批最长约 1 小时）。也可 Actions → **Windows MSI** → **Run workflow** 并勾选 `sign` 做试签。
+
+#### 备选：自有 PFX
+
+若已有 OV/EV 代码签名证书，可改用本地 `signtool`（无 SignPath 配置时生效）：
+
+- Secrets：`WINDOWS_CODESIGN_PFX_BASE64`、`WINDOWS_CODESIGN_PASSWORD`
+- 可选 Variable：`WINDOWS_CODESIGN_TIMESTAMP_URL`（默认 DigiCert）
 
 ```powershell
 cargo build --release
@@ -78,11 +97,22 @@ cargo wix --no-build
 .\scripts\sign-windows.ps1 -Path (Get-ChildItem target\wix\*.msi).FullName -PfxPath cert.pfx -PfxPassword '***'
 ```
 
-`v*` tag 发布**必须**配置上述 Secrets，否则 CI 失败（避免再次放出未签名安装包）。PR / `main` 推送在无证书时仍可打出未签名 artifact。
+`v*` tag **必须**能走 SignPath 或 PFX 之一，否则 CI 失败。PR / `main` 无证书时仍可打未签名 artifact。
+
+### Code signing policy
+
+Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+| Role | Who |
+|------|-----|
+| Committers and reviewers | [Repository collaborators](https://github.com/timeroute/wslc-desktop/settings/access) with write access |
+| Approvers | [Repository owners / maintainers](https://github.com/timeroute/wslc-desktop/settings/access) who approve SignPath signing requests |
+
+Privacy policy: This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
 
 ### 发布到 GitHub Release
 
-打 `v*` tag 会触发 [Windows MSI](.github/workflows/windows-msi.yml)：编译 → 签名 EXE → 打 MSI → 签名 MSI → 创建 Release。
+打 `v*` tag 会触发 [Windows MSI](.github/workflows/windows-msi.yml)：编译 → 打 MSI → SignPath（或 PFX）签名 → 创建 Release。
 
 ```powershell
 # 版本与 Cargo.toml 对齐，例如 0.1.2 → v0.1.2

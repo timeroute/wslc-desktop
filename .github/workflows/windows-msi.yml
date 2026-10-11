@@ -7,15 +7,21 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      sign:
+        description: "Submit unsigned MSI to SignPath (requires SignPath approval)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   msi:
     name: Build MSI (windows-msvc)
     runs-on: windows-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
@@ -70,34 +76,61 @@ jobs:
         shell: pwsh
         run: cargo install cargo-wix --locked
 
-      - name: Prepare code signing certificate
-        id: codesign
+      - name: Read package version
+        id: meta
+        shell: pwsh
+        run: |
+          $m = Select-String -Path Cargo.toml -Pattern '^\s*version\s*=\s*"([^"]+)"' | Select-Object -First 1
+          if (-not $m) { throw "Could not read version from Cargo.toml" }
+          $version = $m.Matches.Groups[1].Value
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "Package version: $version"
+
+      - name: Resolve code signing backend
+        id: signing
         shell: pwsh
         env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           WINDOWS_CODESIGN_PFX_BASE64: ${{ secrets.WINDOWS_CODESIGN_PFX_BASE64 }}
           WINDOWS_CODESIGN_PASSWORD: ${{ secrets.WINDOWS_CODESIGN_PASSWORD }}
+          DISPATCH_SIGN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.sign || 'false' }}
         run: |
           $isTag = $env:GITHUB_REF -like 'refs/tags/v*'
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CODESIGN_PFX_BASE64) -or
-              [string]::IsNullOrWhiteSpace($env:WINDOWS_CODESIGN_PASSWORD)) {
-            if ($isTag) {
-              throw @"
-          Tag releases must be Authenticode-signed to reduce SmartScreen warnings.
-          Add repository secrets:
-            WINDOWS_CODESIGN_PFX_BASE64  — base64 of the .pfx
-            WINDOWS_CODESIGN_PASSWORD    — PFX password
-          "@
-            }
-            Write-Host "No code-signing secrets; producing unsigned build."
-            "CODESIGN_ENABLED=false" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $wantSignPath = $isTag -or ($env:DISPATCH_SIGN -eq 'true')
+          $hasSignPath = -not [string]::IsNullOrWhiteSpace($env:SIGNPATH_API_TOKEN) -and
+                         -not [string]::IsNullOrWhiteSpace($env:SIGNPATH_ORGANIZATION_ID)
+          $hasPfx = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_CODESIGN_PFX_BASE64) -and
+                    -not [string]::IsNullOrWhiteSpace($env:WINDOWS_CODESIGN_PASSWORD)
+
+          if ($wantSignPath -and $hasSignPath) {
+            "backend=signpath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            Write-Host "Signing backend: SignPath (OSS / Foundation certificate)"
             return
           }
 
-          $pfx = Join-Path $env:RUNNER_TEMP "wslc-codesign.pfx"
-          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CODESIGN_PFX_BASE64))
-          "CODESIGN_ENABLED=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "CODESIGN_PFX=$pfx" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "Code-signing certificate imported to runner temp."
+          if ($hasPfx) {
+            $pfx = Join-Path $env:RUNNER_TEMP "wslc-codesign.pfx"
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CODESIGN_PFX_BASE64))
+            "backend=pfx" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            "CODESIGN_PFX=$pfx" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            Write-Host "Signing backend: local PFX (signtool)"
+            return
+          }
+
+          if ($isTag) {
+            throw @"
+          Tag releases must be Authenticode-signed.
+          Preferred (free for OSS): SignPath Foundation — set
+            secrets.SIGNPATH_API_TOKEN
+            vars.SIGNPATH_ORGANIZATION_ID
+          and create project/signing policy + artifact config (see README).
+          Alternative: WINDOWS_CODESIGN_PFX_BASE64 + WINDOWS_CODESIGN_PASSWORD.
+          "@
+          }
+
+          "backend=none" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "No signing backend configured; producing unsigned build."
 
       - name: Build release binary
         shell: pwsh
@@ -110,8 +143,8 @@ jobs:
           }
           cargo build --release
 
-      - name: Sign application executable
-        if: env.CODESIGN_ENABLED == 'true'
+      - name: Sign application executable (PFX)
+        if: steps.signing.outputs.backend == 'pfx'
         shell: pwsh
         env:
           CODESIGN_PASSWORD: ${{ secrets.WINDOWS_CODESIGN_PASSWORD }}
@@ -123,8 +156,8 @@ jobs:
         shell: pwsh
         run: cargo wix --nocapture --no-build
 
-      - name: Sign MSI
-        if: env.CODESIGN_ENABLED == 'true'
+      - name: Sign MSI (PFX)
+        if: steps.signing.outputs.backend == 'pfx'
         shell: pwsh
         env:
           CODESIGN_PASSWORD: ${{ secrets.WINDOWS_CODESIGN_PASSWORD }}
@@ -133,6 +166,52 @@ jobs:
           $msi = Get-ChildItem "target\wix\*.msi" | Select-Object -First 1
           if (-not $msi) { throw "No MSI under target\wix" }
           ./scripts/sign-windows.ps1 -Path $msi.FullName
+
+      - name: Upload unsigned MSI for SignPath
+        if: steps.signing.outputs.backend == 'signpath'
+        id: upload-unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: wslc-desktop-msi-unsigned
+          path: target/wix/*.msi
+          if-no-files-found: error
+          retention-days: 5
+
+      - name: Submit SignPath signing request
+        if: steps.signing.outputs.backend == 'signpath'
+        id: signpath
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'wslc-desktop' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG || 'release' }}
+          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          # OSS policies require a human approver in SignPath before signing finishes.
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: ${{ github.workspace }}/signed
+          parameters: |
+            version: ${{ toJSON(steps.meta.outputs.version) }}
+
+      - name: Install signed MSI from SignPath
+        if: steps.signing.outputs.backend == 'signpath'
+        shell: pwsh
+        run: |
+          $signed = Get-ChildItem -Path "signed" -Recurse -Filter "*.msi" -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if (-not $signed) {
+            throw "SignPath completed but no .msi found under signed/"
+          }
+          New-Item -ItemType Directory -Force -Path "target\wix" | Out-Null
+          Get-ChildItem "target\wix\*.msi" -ErrorAction SilentlyContinue | Remove-Item -Force
+          $dest = Join-Path "target\wix" $signed.Name
+          Copy-Item -LiteralPath $signed.FullName -Destination $dest -Force
+          Write-Host "Installed signed MSI: $dest"
+          if ('${{ steps.signpath.outputs.signing-request-web-url }}') {
+            Write-Host "SignPath request: ${{ steps.signpath.outputs.signing-request-web-url }}"
+          }
 
       - name: Upload MSI artifact
         uses: actions/upload-artifact@v4
@@ -152,8 +231,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Remove certificate from runner
-        if: always() && env.CODESIGN_ENABLED == 'true'
+      - name: Remove PFX from runner
+        if: always() && steps.signing.outputs.backend == 'pfx'
         shell: pwsh
         run: |
           if ($env:CODESIGN_PFX -and (Test-Path -LiteralPath $env:CODESIGN_PFX)) {
