@@ -15,7 +15,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{anyhow, Context as _, Result};
 use serde::{Deserialize, Serialize};
 
-use super::sdk_version::{extract_version, pick_nuget_version};
+use super::sdk_version::{decode_command_output, extract_version, pick_nuget_version};
 
 const NUGET_INDEX: &str =
     "https://api.nuget.org/v3-flatcontainer/microsoft.wsl.containers/index.json";
@@ -251,9 +251,10 @@ fn run_hidden(args: &[&str]) -> Result<String> {
     let output = cmd
         .output()
         .with_context(|| format!("spawn `{program}`"))?;
-    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+    // `wsl.exe` writes UTF-16LE when stdout is a pipe, not a console.
+    let mut text = decode_command_output(&output.stdout);
     if text.trim().is_empty() {
-        text = String::from_utf8_lossy(&output.stderr).into_owned();
+        text = decode_command_output(&output.stderr);
     }
     if !output.status.success() && text.trim().is_empty() {
         return Err(anyhow!("`{program}` exited {}", output.status));
