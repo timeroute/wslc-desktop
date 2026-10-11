@@ -7,7 +7,7 @@
 
 use anyhow::{anyhow, Result};
 
-use super::sdk_version::extract_version;
+use super::sdk_version::SemVer;
 
 /// Installed WSL package version (`x.y.z`), if the MSI registry value is present.
 pub fn package_version() -> Option<String> {
@@ -16,9 +16,9 @@ pub fn package_version() -> Option<String> {
         r"SOFTWARE\Microsoft\Windows\CurrentVersion\Lxss\MSI",
     ] {
         if let Some(raw) = read_hk_lm_string(subkey, "Version")
-            && let Some(v) = extract_version(&raw)
+            && let Some(v) = SemVer::parse(&raw)
         {
-            return Some(v);
+            return Some(v.to_string());
         }
     }
     None

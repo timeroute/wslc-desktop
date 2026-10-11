@@ -10,6 +10,8 @@
   - First-launch WSL check reads only the MSI registry version; no CLI. Live SDK version still comes from `Service::version()`.
 - 拆分 SDK 安装逻辑：`wsl_probe`（版本探测）、`sdk_cache`（本地 stamp/DLL）、`sdk_fetch`（NuGet 下载解压），主路径只保留「缓存命中 / 列包 / 下载」。
   - Split SDK install into probe / cache / fetch modules so the download path stays short.
+- 删除面向 `wsl --version` 的 UTF-16 / 多行文本解析；`sdk_version` 只保留 SemVer 与 NuGet 匹配。
+  - Drop CLI text/UTF-16 parsing; `sdk_version` keeps SemVer + NuGet matching only.
 
 ## [0.1.2] - 2026-10-11
 

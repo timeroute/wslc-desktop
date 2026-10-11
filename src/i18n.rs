@@ -568,7 +568,7 @@ pub static ZH: Strings = Strings {
     sdk_setup_step_checking: "检查中",
     sdk_setup_step_passed: "通过",
     sdk_setup_step_failed: "失败",
-    sdk_wsl_missing: "未检测到 WSL，或无法读取版本。请运行 `wsl --update` 安装或更新后再重试。",
+    sdk_wsl_missing: "未检测到 WSL，或注册表中没有包版本。请运行 `wsl --update` 安装或更新后再重试。",
     sdk_wsl_too_old: "WSL {found} 低于要求的 {required}。请运行 `wsl --update` 后再重试。",
     sdk_wsl_ok: "WSL {version}（要求 {required}+）",
     sdk_install_ok: "SDK {version}",

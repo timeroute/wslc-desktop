@@ -239,7 +239,7 @@ impl WslcClient {
             ));
         }
 
-        match sdk_version::judge_wsl_version(found.as_deref()) {
+        match sdk_version::judge_package_version(found.as_deref()) {
             sdk_version::WslVersionVerdict::Ok(version) => {
                 let _ = tx.send(SdkSetupEvent::Log(format!(
                     "WSL {version} meets the {required}+ requirement"
