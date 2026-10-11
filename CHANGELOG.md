@@ -6,8 +6,8 @@
 
 ### 变更
 
-- 启动时优先从注册表 `HKLM\...\Lxss\Msi\Version` 读取 WSL 包版本（与 WSL 自身一致），不再默认跑 `wsl --version`；仅在注册表缺失时回退 CLI。SDK 加载后的版本仍用 `wslc::Service::version()`。
-  - Prefer the WSL MSI registry version for the first-launch gate; CLI is fallback only. Live SDK version still comes from `Service::version()`.
+- 启动门禁只读注册表 `HKLM\...\Lxss\Msi\Version`（与 WSL 自身一致），不再调用 `wsl --version`。缺键即视为未安装。SDK 加载后的版本仍用 `wslc::Service::version()`。
+  - First-launch WSL check reads only the MSI registry version; no CLI. Live SDK version still comes from `Service::version()`.
 - 拆分 SDK 安装逻辑：`wsl_probe`（版本探测）、`sdk_cache`（本地 stamp/DLL）、`sdk_fetch`（NuGet 下载解压），主路径只保留「缓存命中 / 列包 / 下载」。
   - Split SDK install into probe / cache / fetch modules so the download path stays short.
 

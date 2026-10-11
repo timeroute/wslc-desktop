@@ -357,7 +357,7 @@ pub static EN: Strings = Strings {
     sdk_setup_step_checking: "Checking",
     sdk_setup_step_passed: "Passed",
     sdk_setup_step_failed: "Failed",
-    sdk_wsl_missing: "WSL is missing, or its version could not be read. Install or update WSL with `wsl --update`, then retry.",
+    sdk_wsl_missing: "WSL is missing, or its package version was not found in the registry. Install or update WSL with `wsl --update`, then retry.",
     sdk_wsl_too_old: "WSL {found} is older than {required}. Run `wsl --update`, then retry.",
     sdk_wsl_ok: "WSL {version} (requires {required}+)",
     sdk_install_ok: "SDK {version}",

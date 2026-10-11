@@ -227,34 +227,19 @@ impl WslcClient {
             "Checking WSL version (require {required} or newer)…"
         )));
 
-        // Registry first; CLI only if missing. SDK API needs wslcsdk.dll loaded.
-        let probe = wsl_probe::probe_wsl();
-        match &probe {
-            wsl_probe::WslProbe::Registry { version } => {
-                let _ = tx.send(SdkSetupEvent::Log(format!(
-                    "WSL package version from registry (Lxss\\Msi): {version}"
-                )));
-            }
-            wsl_probe::WslProbe::Cli { raw } => {
-                let _ = tx.send(SdkSetupEvent::Log(
-                    "Registry Lxss\\Msi\\Version missing; falling back to `wsl --version`".into(),
-                ));
-                if raw.trim().is_empty() {
-                    let _ = tx.send(SdkSetupEvent::Log(
-                        "wsl --version produced no output (is WSL installed and on PATH?)".into(),
-                    ));
-                } else {
-                    for line in raw.lines() {
-                        let line = line.trim();
-                        if !line.is_empty() {
-                            let _ = tx.send(SdkSetupEvent::Log(format!("wsl: {line}")));
-                        }
-                    }
-                }
-            }
+        // Registry only (same key WSL writes). No CLI — missing key means not installed.
+        let found = wsl_probe::package_version();
+        if let Some(version) = &found {
+            let _ = tx.send(SdkSetupEvent::Log(format!(
+                "WSL package version from registry (Lxss\\Msi): {version}"
+            )));
+        } else {
+            let _ = tx.send(SdkSetupEvent::Log(
+                "Registry Lxss\\Msi\\Version missing (WSL MSI not installed?)".into(),
+            ));
         }
 
-        match probe.verdict() {
+        match sdk_version::judge_wsl_version(found.as_deref()) {
             sdk_version::WslVersionVerdict::Ok(version) => {
                 let _ = tx.send(SdkSetupEvent::Log(format!(
                     "WSL {version} meets the {required}+ requirement"
@@ -272,7 +257,7 @@ impl WslcClient {
                     state: SetupStepState::Failed(SetupFault::WslMissing),
                 });
                 let _ = tx.send(SdkSetupEvent::Finished(Err(
-                    "WSL is missing or its version could not be read".into(),
+                    "WSL is missing or its version could not be read from the registry".into(),
                 )));
                 false
             }
