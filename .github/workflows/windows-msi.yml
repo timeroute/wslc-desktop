@@ -94,5 +94,7 @@ jobs:
         with:
           files: target/wix/*.msi
           generate_release_notes: true
+          # Allow re-tagging the same version (e.g. rebuild v0.1.2) to replace MSI assets.
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
