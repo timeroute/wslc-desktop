@@ -223,21 +223,35 @@ impl WslcClient {
             "Checking WSL version (require {required} or newer)…"
         )));
 
-        let output = sdk_fetch::probe_wsl_version_output();
-        if let Some(out) = &output {
-            for line in out.lines() {
-                let line = line.trim();
-                if !line.is_empty() {
-                    let _ = tx.send(SdkSetupEvent::Log(format!("wsl: {line}")));
-                }
-            }
+        // Prefer the MSI registry value WSL itself writes (no process spawn /
+        // UTF-16 pipe). Fall back to `wsl --version` only when that is absent.
+        // `wslc::Service::version()` needs wslcsdk.dll and cannot run yet.
+        let verdict = if let Some(version) = sdk_fetch::probe_wsl_registry_version() {
+            let _ = tx.send(SdkSetupEvent::Log(format!(
+                "WSL package version from registry (Lxss\\Msi): {version}"
+            )));
+            sdk_version::judge_wsl_version(Some(&version))
         } else {
             let _ = tx.send(SdkSetupEvent::Log(
-                "wsl --version produced no output (is WSL installed and on PATH?)".into(),
+                "Registry Lxss\\Msi\\Version missing; falling back to `wsl --version`".into(),
             ));
-        }
+            let output = sdk_fetch::probe_wsl_version_output();
+            if let Some(out) = &output {
+                for line in out.lines() {
+                    let line = line.trim();
+                    if !line.is_empty() {
+                        let _ = tx.send(SdkSetupEvent::Log(format!("wsl: {line}")));
+                    }
+                }
+            } else {
+                let _ = tx.send(SdkSetupEvent::Log(
+                    "wsl --version produced no output (is WSL installed and on PATH?)".into(),
+                ));
+            }
+            sdk_version::judge_wsl_version(output.as_deref())
+        };
 
-        match sdk_version::judge_wsl_version(output.as_deref()) {
+        match verdict {
             sdk_version::WslVersionVerdict::Ok(version) => {
                 let _ = tx.send(SdkSetupEvent::Log(format!(
                     "WSL {version} meets the {required}+ requirement"

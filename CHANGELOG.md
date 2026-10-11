@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+### 变更
+
+- 启动时优先从注册表 `HKLM\...\Lxss\Msi\Version` 读取 WSL 包版本（与 WSL 自身一致），不再默认跑 `wsl --version`；仅在注册表缺失时回退 CLI。SDK 加载后的版本仍用 `wslc::Service::version()`。
+  - Prefer the WSL MSI registry version for the first-launch gate; CLI is fallback only. Live SDK version still comes from `Service::version()`.
+
 ## [0.1.2] - 2026-10-11
 
 ### 修复
