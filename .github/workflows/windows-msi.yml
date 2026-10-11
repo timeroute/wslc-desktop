@@ -41,7 +41,7 @@ jobs:
             foreach ($bin in $wixBins) {
               Write-Host "Adding WiX bin: $bin"
               echo "$bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
-              $env:Path = "$bin;$env:Path"
+              $env:Path = "$bin;$env:PATH"
             }
           }
 
@@ -70,7 +70,36 @@ jobs:
         shell: pwsh
         run: cargo install cargo-wix --locked
 
-      - name: Build MSI
+      - name: Prepare code signing certificate
+        id: codesign
+        shell: pwsh
+        env:
+          WINDOWS_CODESIGN_PFX_BASE64: ${{ secrets.WINDOWS_CODESIGN_PFX_BASE64 }}
+          WINDOWS_CODESIGN_PASSWORD: ${{ secrets.WINDOWS_CODESIGN_PASSWORD }}
+        run: |
+          $isTag = $env:GITHUB_REF -like 'refs/tags/v*'
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CODESIGN_PFX_BASE64) -or
+              [string]::IsNullOrWhiteSpace($env:WINDOWS_CODESIGN_PASSWORD)) {
+            if ($isTag) {
+              throw @"
+          Tag releases must be Authenticode-signed to reduce SmartScreen warnings.
+          Add repository secrets:
+            WINDOWS_CODESIGN_PFX_BASE64  — base64 of the .pfx
+            WINDOWS_CODESIGN_PASSWORD    — PFX password
+          "@
+            }
+            Write-Host "No code-signing secrets; producing unsigned build."
+            "CODESIGN_ENABLED=false" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            return
+          }
+
+          $pfx = Join-Path $env:RUNNER_TEMP "wslc-codesign.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CODESIGN_PFX_BASE64))
+          "CODESIGN_ENABLED=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CODESIGN_PFX=$pfx" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Code-signing certificate imported to runner temp."
+
+      - name: Build release binary
         shell: pwsh
         run: |
           if (-not (Test-Path "wix\main.wxs")) {
@@ -79,7 +108,31 @@ jobs:
           if (-not (Test-Path "wix\Product.ico")) {
             throw "Missing wix\Product.ico"
           }
-          cargo wix --nocapture
+          cargo build --release
+
+      - name: Sign application executable
+        if: env.CODESIGN_ENABLED == 'true'
+        shell: pwsh
+        env:
+          CODESIGN_PASSWORD: ${{ secrets.WINDOWS_CODESIGN_PASSWORD }}
+          WINDOWS_CODESIGN_TIMESTAMP_URL: ${{ vars.WINDOWS_CODESIGN_TIMESTAMP_URL }}
+        run: |
+          ./scripts/sign-windows.ps1 -Path "target\release\wslc-desktop.exe"
+
+      - name: Build MSI (from current release binary)
+        shell: pwsh
+        run: cargo wix --nocapture --no-build
+
+      - name: Sign MSI
+        if: env.CODESIGN_ENABLED == 'true'
+        shell: pwsh
+        env:
+          CODESIGN_PASSWORD: ${{ secrets.WINDOWS_CODESIGN_PASSWORD }}
+          WINDOWS_CODESIGN_TIMESTAMP_URL: ${{ vars.WINDOWS_CODESIGN_TIMESTAMP_URL }}
+        run: |
+          $msi = Get-ChildItem "target\wix\*.msi" | Select-Object -First 1
+          if (-not $msi) { throw "No MSI under target\wix" }
+          ./scripts/sign-windows.ps1 -Path $msi.FullName
 
       - name: Upload MSI artifact
         uses: actions/upload-artifact@v4
@@ -98,3 +151,11 @@ jobs:
           overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Remove certificate from runner
+        if: always() && env.CODESIGN_ENABLED == 'true'
+        shell: pwsh
+        run: |
+          if ($env:CODESIGN_PFX -and (Test-Path -LiteralPath $env:CODESIGN_PFX)) {
+            Remove-Item -LiteralPath $env:CODESIGN_PFX -Force
+          }

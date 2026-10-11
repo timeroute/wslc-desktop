@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+### 变更
+
+- Release 流水线支持 Authenticode 签名（先签 `wslc-desktop.exe`，再打 MSI 并签名），用于降低 SmartScreen 拦截。需配置 `WINDOWS_CODESIGN_PFX_BASE64` / `WINDOWS_CODESIGN_PASSWORD`；`v*` tag 未配置证书时 CI 会失败。
+  - CI can Authenticode-sign the EXE and MSI when code-signing secrets are set; tag releases require them.
+
 ## [0.1.2] - 2026-10-11
 
 ### 修复

@@ -57,11 +57,32 @@ cargo wix
 # 当前 0.1.2：WSLc.Desktop-0.1.2-x86_64.msi
 ```
 
-可选：`cargo wix --no-build`（已有 release 产物时）、`cargo wix --sign`（需 `signtool`）。
+可选：`cargo wix --no-build`（已有 release 产物时）。
+
+### 代码签名（降低 SmartScreen）
+
+未签名的 MSI/EXE 容易触发 Windows SmartScreen。发布流水线会在有证书时对 **EXE + MSI** 做 Authenticode 签名（SHA-256 + 时间戳）。
+
+1. 向受信任 CA 申请 **Windows 代码签名证书**（OV 可签；**EV** 对新发布者抑制 SmartScreen 更有效，声誉建立也更快）
+2. 导出为 `.pfx`，在仓库 Settings → Secrets 添加：
+   - `WINDOWS_CODESIGN_PFX_BASE64`：`[Convert]::ToBase64String([IO.File]::ReadAllBytes('cert.pfx'))`
+   - `WINDOWS_CODESIGN_PASSWORD`：PFX 密码
+3. 可选 Variables：`WINDOWS_CODESIGN_TIMESTAMP_URL`（默认 `http://timestamp.digicert.com`）
+
+本地签名（已有 release 二进制与 MSI 时）：
+
+```powershell
+cargo build --release
+.\scripts\sign-windows.ps1 -Path target\release\wslc-desktop.exe -PfxPath cert.pfx -PfxPassword '***'
+cargo wix --no-build
+.\scripts\sign-windows.ps1 -Path (Get-ChildItem target\wix\*.msi).FullName -PfxPath cert.pfx -PfxPassword '***'
+```
+
+`v*` tag 发布**必须**配置上述 Secrets，否则 CI 失败（避免再次放出未签名安装包）。PR / `main` 推送在无证书时仍可打出未签名 artifact。
 
 ### 发布到 GitHub Release
 
-打 `v*` tag 会触发 [Windows MSI](.github/workflows/windows-msi.yml) 工作流：构建 MSI 并创建 Release 挂载安装包。
+打 `v*` tag 会触发 [Windows MSI](.github/workflows/windows-msi.yml)：编译 → 签名 EXE → 打 MSI → 签名 MSI → 创建 Release。
 
 ```powershell
 # 版本与 Cargo.toml 对齐，例如 0.1.2 → v0.1.2
