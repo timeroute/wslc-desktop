@@ -36,6 +36,7 @@ pub fn min_wsl_version_text() -> String {
     sdk_version::MIN_WSL_VERSION.to_string()
 }
 
+#[cfg_attr(not(windows), allow(dead_code))] // production use is in `live` (Windows)
 pub(super) fn split_ref(reference: &str) -> (String, String) {
     if let Some((repo, tag)) = reference.rsplit_once(':') {
         if !tag.contains('/') {
@@ -425,25 +426,6 @@ impl WslcClient {
             }),
             #[cfg(not(windows))]
             Backend::Unsupported => Err(anyhow!("WSL Containers SDK unavailable")),
-        }
-    }
-
-    #[cfg_attr(not(windows), allow(dead_code))]
-    #[allow(dead_code)] // reserved for richer Overview refresh
-    pub fn session_stats(&self) -> SessionStats {
-        match &self.inner.backend {
-            #[cfg(windows)]
-            Backend::Live { tx, .. } => {
-                let (reply_tx, reply_rx) = std::sync::mpsc::channel();
-                if tx.send(live::Cmd::Stats(reply_tx)).is_ok() {
-                    if let Ok(stats) = reply_rx.recv() {
-                        return stats;
-                    }
-                }
-                SessionStats::default()
-            }
-            #[cfg(not(windows))]
-            Backend::Unsupported => SessionStats::default(),
         }
     }
 

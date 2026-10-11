@@ -5,8 +5,6 @@
 
 #![cfg(windows)]
 
-use anyhow::{anyhow, Result};
-
 use super::sdk_version::SemVer;
 
 /// Installed WSL package version (`x.y.z`), if the MSI registry value is present.
@@ -22,16 +20,6 @@ pub fn package_version() -> Option<String> {
         }
     }
     None
-}
-
-/// Host version for NuGet package selection.
-pub fn host_version() -> Result<String> {
-    package_version().ok_or_else(|| {
-        anyhow!(
-            "WSL package version not found in registry (Lxss\\Msi\\Version); \
-             install or update WSL with `wsl --update`"
-        )
-    })
 }
 
 fn read_hk_lm_string(subkey: &str, value_name: &str) -> Option<String> {

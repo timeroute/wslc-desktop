@@ -12,6 +12,8 @@
   - Split SDK install into probe / cache / fetch modules so the download path stays short.
 - 删除面向 `wsl --version` 的 UTF-16 / 多行文本解析；`sdk_version` 只保留 SemVer 与 NuGet 匹配。
   - Drop CLI text/UTF-16 parsing; `sdk_version` keeps SemVer + NuGet matching only.
+- 移除未使用的 `session_stats` / `SessionStats` / `Cmd::Stats` 路径。
+  - Remove unused session-stats plumbing.
 
 ## [0.1.2] - 2026-10-11
 

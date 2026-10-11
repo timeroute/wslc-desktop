@@ -2,7 +2,7 @@
 
 The MSI does **not** embed `wslcsdk.dll`. At runtime the app:
 
-1. Reads `wslc version` / `wsl --version`
+1. Reads the WSL package version from `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Lxss\Msi\Version`
 2. Picks a matching [Microsoft.WSL.Containers](https://www.nuget.org/packages/Microsoft.WSL.Containers) release
 3. Caches `wslcsdk.dll` under `%LOCALAPPDATA%\WSLcDesktop\sdk\`
 

@@ -45,13 +45,15 @@ pub fn ensure_sdk_dir(
 
     emit(FetchEvent::Status("Detecting WSL version…".into()));
     emit(FetchEvent::Progress(5.0));
-    let host = match wsl_probe::host_version() {
-        Ok(v) => {
+    let host = match wsl_probe::package_version() {
+        Some(v) => {
             emit(FetchEvent::Log(format!("Host version: {v}")));
             v
         }
-        Err(err) => {
-            emit(FetchEvent::Log(format!("Could not read WSL version: {err:#}")));
+        None => {
+            emit(FetchEvent::Log(
+                "WSL package version not found in registry (Lxss\\Msi\\Version)".into(),
+            ));
             emit(FetchEvent::Log(
                 "Install or update WSL (`wsl --install` / `wsl --update`), then retry.".into(),
             ));

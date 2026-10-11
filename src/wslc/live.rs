@@ -12,7 +12,7 @@ use super::catalog::{Catalog, PersistedContainer};
 use super::prefs::SessionPrefs;
 use super::{
     split_ref, BackendKind, ContainerInfo, CreateContainerRequest, EngineStatus, ImageInfo,
-    PortMapping, PullEvent, SessionStats, VolumeInfo, VolumeMapping,
+    PortMapping, PullEvent, VolumeInfo, VolumeMapping,
 };
 
 const SESSION_NAME: &str = "wslc-desktop";
@@ -21,7 +21,6 @@ const STOP_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub enum Cmd {
     Status(Sender<EngineStatus>),
-    Stats(Sender<SessionStats>),
     ListContainers {
         all: bool,
         reply: Sender<Result<Vec<ContainerInfo>>>,
@@ -406,28 +405,6 @@ impl LiveState {
             message: format!("Connected via WSL Containers SDK {}", self.version),
             cpu_count: self.prefs.cpu_count,
             memory_mb: self.prefs.memory_mb,
-        }
-    }
-
-    fn stats(&self) -> SessionStats {
-        let running = self
-            .containers
-            .iter()
-            .filter(|c| {
-                matches!(
-                    c.handle.state(),
-                    Ok(wslc::ContainerState::Running)
-                )
-            })
-            .count();
-        let images = self.session.list_images().map(|v| v.len()).unwrap_or(0);
-        SessionStats {
-            cpu_count: self.prefs.cpu_count,
-            memory_mb: self.prefs.memory_mb,
-            containers: self.containers.len(),
-            running,
-            images,
-            volumes: self.volumes.len(),
         }
     }
 
@@ -922,9 +899,6 @@ fn live_worker(mut state: LiveState, rx: mpsc::Receiver<Cmd>) {
         match cmd {
             Cmd::Status(reply) => {
                 let _ = reply.send(state.status());
-            }
-            Cmd::Stats(reply) => {
-                let _ = reply.send(state.stats());
             }
             Cmd::ListContainers { all, reply } => {
                 let _ = reply.send(state.list_containers(all));

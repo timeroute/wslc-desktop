@@ -64,6 +64,7 @@ pub fn judge_package_version(version: Option<&str>) -> WslVersionVerdict {
 
 /// Prefer exact host match, else newest package with the same major as the
 /// host, else the newest published package.
+#[cfg_attr(not(windows), allow(dead_code))] // used from `sdk_fetch` on Windows
 pub fn pick_nuget_version(host: &str, available: &[String]) -> Option<String> {
     let mut parsed: Vec<(SemVer, &String)> = available
         .iter()
@@ -89,6 +90,7 @@ pub fn pick_nuget_version(host: &str, available: &[String]) -> Option<String> {
 ///
 /// Re-download only when the cached package major is behind the host, or when
 /// the user forces Retry.
+#[cfg_attr(not(windows), allow(dead_code))] // used from `sdk_cache` on Windows
 pub fn cache_compatible(host: &str, nuget_version: &str) -> bool {
     let Some(host_ver) = SemVer::parse(host) else {
         return true;
