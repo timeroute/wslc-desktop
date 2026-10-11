@@ -204,6 +204,21 @@ fn native_arch_folder() -> &'static str {
     }
 }
 
+/// Raw `wsl --version` text, if the command ran and printed anything.
+pub(crate) fn probe_wsl_version_output() -> Option<String> {
+    for args in [
+        ["wsl", "--version"].as_slice(),
+        ["wsl.exe", "--version"].as_slice(),
+    ] {
+        if let Ok(out) = run_hidden(args) {
+            if !out.trim().is_empty() {
+                return Some(out);
+            }
+        }
+    }
+    None
+}
+
 fn probe_host_version() -> Result<String> {
     for args in [
         ["wslc", "version"].as_slice(),

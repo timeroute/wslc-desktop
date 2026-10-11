@@ -5,6 +5,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use super::paths::{app_data_dir, write_atomic};
+
 pub const DEFAULT_CPU_COUNT: u32 = 2;
 pub const DEFAULT_MEMORY_MB: u32 = 2048;
 
@@ -26,10 +28,7 @@ impl Default for SessionPrefs {
 #[cfg_attr(not(windows), allow(dead_code))]
 impl SessionPrefs {
     pub fn path() -> PathBuf {
-        let base = std::env::var_os("LOCALAPPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(r"C:\WslcData"));
-        base.join("WSLcDesktop").join("prefs.json")
+        app_data_dir().join("prefs.json")
     }
 
     pub fn load() -> Self {
@@ -51,15 +50,8 @@ impl SessionPrefs {
     }
 
     pub fn save(&self) -> Result<(), String> {
-        let path = Self::path();
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|e| format!("create prefs dir: {e}"))?;
-        }
         let json = serde_json::to_vec_pretty(self).map_err(|e| format!("serialize prefs: {e}"))?;
-        let tmp = path.with_extension("json.tmp");
-        fs::write(&tmp, json).map_err(|e| format!("write prefs tmp: {e}"))?;
-        fs::rename(&tmp, path).map_err(|e| format!("replace prefs: {e}"))?;
-        Ok(())
+        write_atomic(&Self::path(), &json)
     }
 
     pub fn clamp(mut self) -> Self {

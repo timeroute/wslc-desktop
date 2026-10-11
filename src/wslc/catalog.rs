@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use super::paths::{app_data_dir, write_atomic};
 use super::types::VolumeInfo;
 
 pub const CATALOG_VERSION: u32 = 1;
@@ -49,10 +50,7 @@ impl Default for Catalog {
 #[cfg_attr(not(windows), allow(dead_code))]
 impl Catalog {
     pub fn catalog_path() -> PathBuf {
-        let base = std::env::var_os("LOCALAPPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(r"C:\WslcData"));
-        base.join("WSLcDesktop").join("catalog.json")
+        app_data_dir().join("catalog.json")
     }
 
     pub fn load() -> Self {
@@ -70,15 +68,9 @@ impl Catalog {
     }
 
     pub fn save(&self) -> Result<(), String> {
-        let path = Self::catalog_path();
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|e| format!("create catalog dir: {e}"))?;
-        }
-        let json = serde_json::to_vec_pretty(self).map_err(|e| format!("serialize catalog: {e}"))?;
-        let tmp = path.with_extension("json.tmp");
-        fs::write(&tmp, &json).map_err(|e| format!("write catalog tmp: {e}"))?;
-        fs::rename(&tmp, &path).map_err(|e| format!("replace catalog: {e}"))?;
-        Ok(())
+        let json =
+            serde_json::to_vec_pretty(self).map_err(|e| format!("serialize catalog: {e}"))?;
+        write_atomic(&Self::catalog_path(), &json)
     }
 }
 
