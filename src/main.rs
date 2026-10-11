@@ -2,6 +2,7 @@
 
 mod app;
 mod i18n;
+mod single_instance;
 mod wslc;
 
 use gpui_kit::component::{Theme, ThemeMode, TitleBar};
@@ -12,6 +13,19 @@ use app::AppView;
 actions!(wslc_desktop, [Quit]);
 
 fn main() {
+    // Keep the mutex alive for the process lifetime (dropped after `app.run`).
+    let _instance = match single_instance::try_acquire() {
+        Ok(lock) => Some(lock),
+        Err(single_instance::AcquireError::AlreadyRunning) => {
+            single_instance::notify_already_running();
+            return;
+        }
+        Err(single_instance::AcquireError::Failed(_)) => {
+            // Mutex creation failed; continue rather than blocking launch.
+            None
+        }
+    };
+
     let app = gpui_kit::application().with_assets(gpui_kit::assets::Assets);
 
     app.run(move |cx| {

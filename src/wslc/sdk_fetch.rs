@@ -15,7 +15,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{anyhow, Context as _, Result};
 use serde::{Deserialize, Serialize};
 
-use super::sdk_version::{decode_command_output, extract_version, pick_nuget_version};
+use super::sdk_version::{
+    cache_compatible, decode_command_output, extract_version, judge_wsl_version, pick_nuget_version,
+    WslVersionVerdict,
+};
 
 const NUGET_INDEX: &str =
     "https://api.nuget.org/v3-flatcontainer/microsoft.wsl.containers/index.json";
@@ -75,9 +78,17 @@ pub fn ensure_sdk_dir(
 
     let stamp_path = sdk_root().join("active.json");
 
-    // Prefer a matching on-disk DLL before touching NuGet (offline / stale index).
+    // Prefer a compatible on-disk DLL before touching NuGet. Host probe strings
+    // may drift across launches; only major-behind caches are rejected.
     if !force_redownload {
-        if let Some(dir) = try_active_sdk_dir(&stamp_path, Some(&host), arch) {
+        if let Some((dir, stamp)) = try_active_sdk_dir(&stamp_path, Some(&host), arch) {
+            if stamp.host_version != host {
+                emit(FetchEvent::Log(format!(
+                    "Host probe drifted ({} → {}); keeping cached SDK {}",
+                    stamp.host_version, host, stamp.nuget_version
+                )));
+                let _ = write_stamp(&stamp_path, &host, &stamp.nuget_version, arch);
+            }
             emit(FetchEvent::Status("Using cached SDK".into()));
             emit(FetchEvent::Log(format!(
                 "Cache hit (active stamp): {}",
@@ -94,7 +105,7 @@ pub fn ensure_sdk_dir(
         Err(err) => {
             // Last resort: any previously activated DLL, even if host string drifted.
             if !force_redownload {
-                if let Some(dir) = try_active_sdk_dir(&stamp_path, None, arch) {
+                if let Some((dir, _)) = try_active_sdk_dir(&stamp_path, None, arch) {
                     emit(FetchEvent::Log(format!(
                         "NuGet unavailable ({err:#}); reusing active SDK cache"
                     )));
@@ -220,11 +231,23 @@ pub(crate) fn probe_wsl_version_output() -> Option<String> {
 }
 
 fn probe_host_version() -> Result<String> {
+    // Prefer the same WSL version the setup gate uses so the active stamp does
+    // not flip between `wslc version` and `wsl --version` across launches.
+    if let Some(out) = probe_wsl_version_output() {
+        match judge_wsl_version(Some(&out)) {
+            WslVersionVerdict::Ok(v) | WslVersionVerdict::TooOld { found: v } => {
+                return Ok(v);
+            }
+            WslVersionVerdict::Missing => {
+                if let Some(v) = extract_version(&out) {
+                    return Ok(v);
+                }
+            }
+        }
+    }
     for args in [
         ["wslc", "version"].as_slice(),
         ["wslc.exe", "version"].as_slice(),
-        ["wsl", "--version"].as_slice(),
-        ["wsl.exe", "--version"].as_slice(),
     ] {
         if let Ok(out) = run_hidden(args) {
             if let Some(v) = extract_version(&out) {
@@ -266,21 +289,21 @@ fn try_active_sdk_dir(
     stamp_path: &Path,
     host: Option<&str>,
     arch: &str,
-) -> Option<PathBuf> {
+) -> Option<(PathBuf, ActiveStamp)> {
     let raw = fs::read_to_string(stamp_path).ok()?;
     let stamp: ActiveStamp = serde_json::from_str(&raw).ok()?;
     if stamp.arch != arch {
         return None;
     }
-    if let Some(host) = host {
-        if stamp.host_version != host {
-            return None;
-        }
+    if let Some(host) = host
+        && !cache_compatible(host, &stamp.nuget_version)
+    {
+        return None;
     }
     let dir = sdk_root()
         .join(format!("nuget-{}", stamp.nuget_version))
         .join(arch);
-    nuget_dir_ready(&dir).then_some(dir)
+    nuget_dir_ready(&dir).then_some((dir, stamp))
 }
 
 fn nuget_versions(emit: &mut dyn FnMut(FetchEvent)) -> Result<Vec<String>> {
