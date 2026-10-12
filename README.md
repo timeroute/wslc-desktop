@@ -10,7 +10,7 @@
 |------|----------|----------|
 | ![总览](docs/screenshots/overview.png) | ![容器日志](docs/screenshots/containers-logs.png) | ![拉取镜像](docs/screenshots/images-pull.png) |
 
-用独立会话 `wslc-desktop`（`%LOCALAPPDATA%\WSLcDesktop\`）管理容器、镜像与 VHD 卷，与默认 `wslc` CLI 会话隔离。Rust 绑定使用自维护 fork [`timeroute/wslc-rs`](https://github.com/timeroute/wslc-rs)（OpenContainer / Logs / named volumes）。MSI **不捆绑** `wslcsdk.dll`：首次启动以阻塞弹窗安装/更新 SDK，之后复用 `%LOCALAPPDATA%\WSLcDesktop\sdk\` 缓存（仅在版本不兼容或手动重试时再下载）。同一用户会话只允许一个实例。
+用独立会话 `wslc-desktop`（`%LOCALAPPDATA%\WSLcDesktop\`）管理容器、镜像与 VHD 卷，与默认 `wslc` CLI 会话隔离。Rust 绑定使用自维护 fork [`timeroute/wslc-rs`](https://github.com/timeroute/wslc-rs)（OpenContainer / Logs / named volumes）。MSI **不捆绑** `wslcsdk.dll`：首次启动以阻塞弹窗安装/更新 SDK，之后复用 `%LOCALAPPDATA%\WSLcDesktop\sdk\` 缓存（仅在版本不兼容或手动重试时再下载）。启动门禁只读注册表 `Lxss\Msi\Version`（与 WSL 一致），SDK 连上后版本来自 `Service::version()`。同一用户会话只允许一个实例。
 
 ## 安装（推荐）
 

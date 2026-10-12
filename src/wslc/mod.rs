@@ -15,6 +15,8 @@ mod live;
 mod paths;
 mod prefs;
 #[cfg(windows)]
+mod sdk_cache;
+#[cfg(windows)]
 mod sdk_fetch;
 mod sdk_version;
 pub mod setup_log;
@@ -22,6 +24,8 @@ pub mod setup_log;
 mod syspath;
 pub mod templates;
 mod types;
+#[cfg(windows)]
+mod wsl_probe;
 
 pub use prefs::SessionPrefs;
 pub use templates::{ContainerTemplate, TemplateEditError, TemplateStore, UpsertKind};
@@ -32,6 +36,7 @@ pub fn min_wsl_version_text() -> String {
     sdk_version::MIN_WSL_VERSION.to_string()
 }
 
+#[cfg_attr(not(windows), allow(dead_code))] // production use is in `live` (Windows)
 pub(super) fn split_ref(reference: &str) -> (String, String) {
     if let Some((repo, tag)) = reference.rsplit_once(':') {
         if !tag.contains('/') {
@@ -223,21 +228,19 @@ impl WslcClient {
             "Checking WSL version (require {required} or newer)…"
         )));
 
-        let output = sdk_fetch::probe_wsl_version_output();
-        if let Some(out) = &output {
-            for line in out.lines() {
-                let line = line.trim();
-                if !line.is_empty() {
-                    let _ = tx.send(SdkSetupEvent::Log(format!("wsl: {line}")));
-                }
-            }
+        // Registry only (same key WSL writes). No CLI — missing key means not installed.
+        let found = wsl_probe::package_version();
+        if let Some(version) = &found {
+            let _ = tx.send(SdkSetupEvent::Log(format!(
+                "WSL package version from registry (Lxss\\Msi): {version}"
+            )));
         } else {
             let _ = tx.send(SdkSetupEvent::Log(
-                "wsl --version produced no output (is WSL installed and on PATH?)".into(),
+                "Registry Lxss\\Msi\\Version missing (WSL MSI not installed?)".into(),
             ));
         }
 
-        match sdk_version::judge_wsl_version(output.as_deref()) {
+        match sdk_version::judge_package_version(found.as_deref()) {
             sdk_version::WslVersionVerdict::Ok(version) => {
                 let _ = tx.send(SdkSetupEvent::Log(format!(
                     "WSL {version} meets the {required}+ requirement"
@@ -255,7 +258,7 @@ impl WslcClient {
                     state: SetupStepState::Failed(SetupFault::WslMissing),
                 });
                 let _ = tx.send(SdkSetupEvent::Finished(Err(
-                    "WSL is missing or its version could not be read".into(),
+                    "WSL is missing or its version could not be read from the registry".into(),
                 )));
                 false
             }
@@ -423,25 +426,6 @@ impl WslcClient {
             }),
             #[cfg(not(windows))]
             Backend::Unsupported => Err(anyhow!("WSL Containers SDK unavailable")),
-        }
-    }
-
-    #[cfg_attr(not(windows), allow(dead_code))]
-    #[allow(dead_code)] // reserved for richer Overview refresh
-    pub fn session_stats(&self) -> SessionStats {
-        match &self.inner.backend {
-            #[cfg(windows)]
-            Backend::Live { tx, .. } => {
-                let (reply_tx, reply_rx) = std::sync::mpsc::channel();
-                if tx.send(live::Cmd::Stats(reply_tx)).is_ok() {
-                    if let Ok(stats) = reply_rx.recv() {
-                        return stats;
-                    }
-                }
-                SessionStats::default()
-            }
-            #[cfg(not(windows))]
-            Backend::Unsupported => SessionStats::default(),
         }
     }
 

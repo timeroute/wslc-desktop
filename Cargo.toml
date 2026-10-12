@@ -40,6 +40,7 @@ ureq = { version = "2.12", default-features = true, features = ["json"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
+    "Win32_System_Registry",
     "Win32_System_Threading",
     "Win32_UI_WindowsAndMessaging",
 ] }

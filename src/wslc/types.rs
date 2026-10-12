@@ -127,9 +127,9 @@ pub enum SetupStepId {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(not(windows), allow(dead_code))]
 pub enum SetupFault {
-    /// `wsl --version` missing, failed, or unreadable.
+    /// Registry `Lxss\Msi\Version` missing or unreadable.
     WslMissing,
-    /// Parsed version is below 2.9.3.
+    /// Package version is below 2.9.3.
     WslTooOld { found: String },
     /// This build is not running on Windows.
     NotWindows,
@@ -164,14 +164,3 @@ pub enum SdkSetupEvent {
     Finished(Result<super::WslcClient, String>),
 }
 
-/// Snapshot used by Overview "simple stats".
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-#[allow(dead_code)]
-pub struct SessionStats {
-    pub cpu_count: u32,
-    pub memory_mb: u32,
-    pub containers: usize,
-    pub running: usize,
-    pub images: usize,
-    pub volumes: usize,
-}
