@@ -25,6 +25,7 @@ impl AppView {
         }
         self.locale = locale;
         let t = self.t();
+        super::tray_icon::refresh_menu(cx);
         self.name_input.update(cx, |state, cx| {
             state.set_placeholder(t.name_placeholder, window, cx);
         });
@@ -270,7 +271,7 @@ impl AppView {
     }
 
     /// Returns `true` while the background op is still running.
-    fn poll_busy(&mut self, cx: &mut Context<Self>) -> bool {
+    pub(crate) fn poll_busy(&mut self, cx: &mut Context<Self>) -> bool {
         let Some(rx) = self.busy_rx.take() else {
             return false;
         };
@@ -295,12 +296,21 @@ impl AppView {
                     if self.create_modal_open {
                         self.create_modal_open = false;
                     }
-                    self.set_status(msg, cx);
-                    self.refresh(cx);
+                    if self.pending_quit_after_stop {
+                        self.set_status(msg, cx);
+                        self.finish_quit_after_stop(cx);
+                    } else {
+                        self.set_status(msg, cx);
+                        self.refresh(cx);
+                    }
                 }
                 Err(err) => {
                     let msg = i18n::fmt1(self.t().error_prefix, "err", err.to_string());
                     self.set_status(msg, cx);
+                    if self.pending_quit_after_stop {
+                        // Still leave so a stuck stop cannot pin the UI forever.
+                        self.finish_quit_after_stop(cx);
+                    }
                 }
             }
             cx.notify();

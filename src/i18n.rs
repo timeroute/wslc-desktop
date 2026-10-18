@@ -87,6 +87,8 @@ pub struct Strings {
 
     pub confirm_remove_title: &'static str,
     pub confirm_remove_container: &'static str,
+    pub confirm_remove_container_volumes: &'static str,
+    pub confirm_remove_container_volumes_hint: &'static str,
     pub confirm_remove_image: &'static str,
     pub confirm_remove_volume: &'static str,
 
@@ -218,6 +220,30 @@ pub struct Strings {
     pub settings_cpu: &'static str,
     pub settings_memory: &'static str,
     pub settings_prefs_saved: &'static str,
+    pub settings_close: &'static str,
+    pub settings_close_hint: &'static str,
+    pub settings_close_ask: &'static str,
+    pub settings_close_minimize: &'static str,
+    pub settings_close_quit_stop: &'static str,
+    pub settings_close_saved: &'static str,
+
+    pub close_prompt_title: &'static str,
+    pub close_prompt_body: &'static str,
+    pub close_prompt_minimize: &'static str,
+    pub close_prompt_quit_stop: &'static str,
+    pub close_prompt_remember: &'static str,
+    /// Used by the Windows system-tray menu builder.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub tray_tooltip: &'static str,
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub tray_show_window: &'static str,
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub tray_quit_keep: &'static str,
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub tray_quit_stop: &'static str,
+    pub minimized_to_tray: &'static str,
+    pub stopping_containers_on_quit: &'static str,
+    pub quit_stopped_containers: &'static str,
 
     pub overview_cpu: &'static str,
     pub overview_memory: &'static str,
@@ -230,6 +256,7 @@ pub struct Strings {
     pub stopped: &'static str,
     pub restarted: &'static str,
     pub removed: &'static str,
+    pub removed_container_with_volumes: &'static str,
     pub created_container: &'static str,
     pub created_volume: &'static str,
     pub pulling_image: &'static str,
@@ -275,7 +302,7 @@ pub static EN: Strings = Strings {
     overview_status_live: "Connected (LIVE)",
     overview_status_off: "Unavailable (OFF)",
     overview_na: "—",
-    overview_persist_hint: "Containers and volumes are restored after app restart (session is not terminated on exit).",
+    overview_persist_hint: "Closing the window can minimize to the tray (containers keep running) or quit and stop running containers. Named volumes are never deleted unless you confirm them separately.",
     overview_cpu: "CPU",
     overview_memory: "Memory",
 
@@ -301,6 +328,8 @@ pub static EN: Strings = Strings {
 
     confirm_remove_title: "Confirm remove",
     confirm_remove_container: "Remove container “{name}”? This cannot be undone.",
+    confirm_remove_container_volumes: "Also delete named volumes: {volumes}",
+    confirm_remove_container_volumes_hint: "Volumes hold database files and other data. Leave this off to keep them.",
     confirm_remove_image: "Remove image “{name}”? This cannot be undone.",
     confirm_remove_volume: "Remove volume “{name}”? This cannot be undone.",
 
@@ -420,7 +449,7 @@ pub static EN: Strings = Strings {
     pull_ok: "OK",
     pull_failed: "FAILED",
 
-    settings_intro: "Language, appearance, and session resources. Language defaults from the system locale (Chinese → 中文, otherwise English).",
+    settings_intro: "Language, appearance, close-window behavior, and session resources. Language defaults from the system locale (Chinese → 中文, otherwise English).",
     language: "Language",
     language_hint: "UI language for menus, buttons, and status text.",
     theme: "Theme",
@@ -432,6 +461,25 @@ pub static EN: Strings = Strings {
     settings_cpu: "CPU count",
     settings_memory: "Memory (MiB)",
     settings_prefs_saved: "Session preferences saved",
+    settings_close: "Close window",
+    settings_close_hint: "Choose what the window close button does. “Ask each time” restores the first-run prompt.",
+    settings_close_ask: "Ask each time",
+    settings_close_minimize: "Minimize to tray (keep containers)",
+    settings_close_quit_stop: "Quit and stop running containers",
+    settings_close_saved: "Close behavior saved",
+
+    close_prompt_title: "Close WSLc Desktop",
+    close_prompt_body: "Minimize keeps the manager in the system tray and leaves containers running. Quit and stop shuts down every running container in this session, then exits the app.",
+    close_prompt_minimize: "Minimize to tray (keep containers)",
+    close_prompt_quit_stop: "Quit and stop running containers",
+    close_prompt_remember: "Remember this choice (change anytime in Settings)",
+    tray_tooltip: "WSLc Desktop",
+    tray_show_window: "Show window",
+    tray_quit_keep: "Quit app (keep containers running)",
+    tray_quit_stop: "Quit and stop running containers",
+    minimized_to_tray: "Minimized to tray · containers still running",
+    stopping_containers_on_quit: "Stopping running containers before quit…",
+    quit_stopped_containers: "Stopped {count} container(s); quitting…",
 
     list_containers_failed: "List containers failed: {err}",
     list_images_failed: "List images failed: {err}",
@@ -441,6 +489,7 @@ pub static EN: Strings = Strings {
     stopped: "Stopped {name}",
     restarted: "Restarted {name}",
     removed: "Removed {name}",
+    removed_container_with_volumes: "Removed {name} and volumes {volumes}",
     created_container: "Created {name}",
     created_volume: "Created volume {name}",
     pulling_image: "Pulling {name}…",
@@ -486,7 +535,7 @@ pub static ZH: Strings = Strings {
     overview_status_live: "已连接（LIVE）",
     overview_status_off: "不可用（OFF）",
     overview_na: "—",
-    overview_persist_hint: "退出应用不会终止会话；重启后会自动恢复容器与卷。",
+    overview_persist_hint: "关闭窗口时可最小化到托盘（容器继续运行），或退出并停止运行中的容器。命名卷不会被顺手删掉，除非你在删除容器时单独确认。",
     overview_cpu: "CPU",
     overview_memory: "内存",
 
@@ -512,6 +561,8 @@ pub static ZH: Strings = Strings {
 
     confirm_remove_title: "确认删除",
     confirm_remove_container: "删除容器「{name}」？此操作不可撤销。",
+    confirm_remove_container_volumes: "同时删除命名卷：{volumes}",
+    confirm_remove_container_volumes_hint: "命名卷里可能有数据库等数据。默认不勾选，避免误删。",
     confirm_remove_image: "删除镜像「{name}」？此操作不可撤销。",
     confirm_remove_volume: "删除卷「{name}」？此操作不可撤销。",
 
@@ -631,7 +682,7 @@ pub static ZH: Strings = Strings {
     pull_ok: "成功",
     pull_failed: "失败",
 
-    settings_intro: "语言、外观与会话资源。语言默认跟随系统区域设置（中文 → 中文，否则英文）。",
+    settings_intro: "语言、外观、关闭窗口行为与会话资源。语言默认跟随系统区域设置（中文 → 中文，否则英文）。",
     language: "语言",
     language_hint: "菜单、按钮与状态栏使用的界面语言。",
     theme: "主题",
@@ -643,6 +694,25 @@ pub static ZH: Strings = Strings {
     settings_cpu: "CPU 数量",
     settings_memory: "内存（MiB）",
     settings_prefs_saved: "会话偏好已保存",
+    settings_close: "关闭窗口",
+    settings_close_hint: "设置点关闭按钮时的行为。「每次询问」会恢复首次关闭时的提示。",
+    settings_close_ask: "每次询问",
+    settings_close_minimize: "最小化到托盘（容器继续运行）",
+    settings_close_quit_stop: "退出并停止运行中的容器",
+    settings_close_saved: "关闭行为已保存",
+
+    close_prompt_title: "关闭 WSLc Desktop",
+    close_prompt_body: "最小化会把管理器收进系统托盘，容器继续运行。「退出并停止」会停止本会话中所有运行中的容器，然后退出应用。",
+    close_prompt_minimize: "最小化到托盘（容器继续运行）",
+    close_prompt_quit_stop: "退出并停止运行中的容器",
+    close_prompt_remember: "记住本次选择（可在设置中修改）",
+    tray_tooltip: "WSLc Desktop",
+    tray_show_window: "显示窗口",
+    tray_quit_keep: "退出应用（容器继续运行）",
+    tray_quit_stop: "退出并停止运行中的容器",
+    minimized_to_tray: "已最小化到托盘 · 容器仍在运行",
+    stopping_containers_on_quit: "正在停止运行中的容器，随后退出…",
+    quit_stopped_containers: "已停止 {count} 个容器；正在退出…",
 
     list_containers_failed: "列出容器失败: {err}",
     list_images_failed: "列出镜像失败: {err}",
@@ -652,6 +722,7 @@ pub static ZH: Strings = Strings {
     stopped: "已停止 {name}",
     restarted: "已重启 {name}",
     removed: "已删除 {name}",
+    removed_container_with_volumes: "已删除 {name} 及卷 {volumes}",
     created_container: "已创建 {name}",
     created_volume: "已创建卷 {name}",
     pulling_image: "正在拉取 {name}…",

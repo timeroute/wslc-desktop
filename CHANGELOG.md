@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+### 新增
+
+- 删除容器时可单独确认是否同时删除关联命名卷（默认不删，避免误清数据库等数据）。
+  - Removing a container can optionally delete attached named volumes; off by default.
+- 关闭窗口首次提示：最小化到系统托盘（容器继续运行）或退出并停止本会话所有运行中容器；选择会写入设置，可随时改。托盘图标常驻，可显示窗口 / 退出并保留容器 / 退出并停止容器。
+  - First close asks minimize-to-tray vs quit-and-stop; preference is saved. Resident tray icon for show / quit-keep / quit-stop.
+
 ### 变更
 
 - 启动门禁只读注册表 `HKLM\...\Lxss\Msi\Version`（与 WSL 自身一致），不再调用 `wsl --version`。缺键即视为未安装。SDK 加载后的版本仍用 `wslc::Service::version()`。

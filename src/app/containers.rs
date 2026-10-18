@@ -16,7 +16,9 @@ use crate::wslc::{
 };
 
 use super::AppView;
-use super::parsing::{parse_bind_mounts, parse_named_volumes, parse_port_mappings};
+use super::parsing::{
+    named_volumes_attached, parse_bind_mounts, parse_named_volumes, parse_port_mappings,
+};
 use super::state::{ConfirmAction, PullPhase};
 use super::widgets::{
     list_header, modal_panel, modal_scrim, resource_list, resource_row, row_actions, settings_card,
@@ -631,8 +633,15 @@ impl AppView {
                                         } else {
                                             item.name.clone()
                                         };
+                                        let named_volumes =
+                                            named_volumes_attached(&item.volumes, &this.volumes);
                                         this.request_confirm(
-                                            ConfirmAction::RemoveContainer { key, label },
+                                            ConfirmAction::RemoveContainer {
+                                                key,
+                                                label,
+                                                named_volumes,
+                                                remove_volumes: false,
+                                            },
                                             cx,
                                         );
                                     })),

@@ -24,6 +24,7 @@ upgrade-guid = "31263ED9-28F7-4608-AF04-A8CAE4591EB0"
 [dependencies]
 anyhow = "1"
 gpui-kit = "0.7.1"
+raw-window-handle = "0.6"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 smol = "2"
@@ -38,6 +39,7 @@ sys-locale = "0.3"
 wslc = { git = "https://github.com/timeroute/wslc-rs", rev = "9fbcd72f6967f79d0dc805648120eaec77364a2e" }
 ureq = { version = "2.12", default-features = true, features = ["json"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
+gpui-tray = { version = "0.1", default-features = false, features = ["gpui-kit", "menu-state"] }
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_System_Registry",

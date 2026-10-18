@@ -9,7 +9,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::i18n::Locale;
-use crate::wslc::{SessionPrefs, WslcClient};
+use crate::wslc::{CloseBehavior, SessionPrefs, WslcClient};
 
 use super::widgets::settings_card;
 use super::AppView;
@@ -36,6 +36,7 @@ impl AppView {
         let theme_mode = self.theme_mode;
         let cpu = self.session_prefs.cpu_count;
         let memory = self.session_prefs.memory_mb;
+        let close_behavior = self.session_prefs.close_behavior;
 
         div()
             .id("settings-panel")
@@ -113,6 +114,62 @@ impl AppView {
                                             .when(theme_mode == ThemeMode::Light, |b| b.primary())
                                             .on_click(cx.listener(|this, _, window, cx| {
                                                 this.apply_theme(ThemeMode::Light, window, cx);
+                                            })),
+                                    ),
+                            ),
+                    )
+                    .child(
+                        settings_card(cx)
+                            .child(div().font_medium().text_sm().child(t.settings_close))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(t.settings_close_hint),
+                            )
+                            .child(
+                                v_flex()
+                                    .gap_2()
+                                    .child(
+                                        Button::new("close-ask")
+                                            .small()
+                                            .label(t.settings_close_ask)
+                                            .when(close_behavior == CloseBehavior::Ask, |b| {
+                                                b.primary()
+                                            })
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.set_close_behavior(CloseBehavior::Ask, cx);
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("close-minimize")
+                                            .small()
+                                            .label(t.settings_close_minimize)
+                                            .when(
+                                                close_behavior == CloseBehavior::MinimizeToTray,
+                                                |b| b.primary(),
+                                            )
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.set_close_behavior(
+                                                    CloseBehavior::MinimizeToTray,
+                                                    cx,
+                                                );
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("close-quit-stop")
+                                            .small()
+                                            .label(t.settings_close_quit_stop)
+                                            .when(
+                                                close_behavior
+                                                    == CloseBehavior::QuitAndStopContainers,
+                                                |b| b.primary(),
+                                            )
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.set_close_behavior(
+                                                    CloseBehavior::QuitAndStopContainers,
+                                                    cx,
+                                                );
                                             })),
                                     ),
                             ),

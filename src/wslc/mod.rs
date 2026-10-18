@@ -27,7 +27,7 @@ mod types;
 #[cfg(windows)]
 mod wsl_probe;
 
-pub use prefs::SessionPrefs;
+pub use prefs::{CloseBehavior, SessionPrefs};
 pub use templates::{ContainerTemplate, TemplateEditError, TemplateStore, UpsertKind};
 pub use types::*;
 
@@ -339,6 +339,25 @@ impl WslcClient {
             #[cfg(not(windows))]
             Backend::Unsupported => Err(anyhow!("WSL Containers SDK unavailable")),
         }
+    }
+
+    /// Stop every running container in this desktop session. Returns how many were stopped.
+    pub fn stop_all_running_containers(&self) -> Result<usize> {
+        let containers = self.list_containers(true)?;
+        let mut stopped = 0usize;
+        for item in containers {
+            if !item.is_running() {
+                continue;
+            }
+            let key = if item.name.is_empty() {
+                item.id.clone()
+            } else {
+                item.name.clone()
+            };
+            self.stop_container(&key)?;
+            stopped += 1;
+        }
+        Ok(stopped)
     }
 
     pub fn restart_container(&self, name_or_id: &str) -> Result<()> {

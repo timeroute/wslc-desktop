@@ -31,9 +31,9 @@
 | **Containers** | 创建（端口 / bind / 命名卷）；行内 Start / Stop / Restart / Logs / Inspect / Exec / Remove；catalog + `OpenContainer` 跨重启恢复 |
 | **Images** | 拉取弹窗；行内创建容器 / 删除 |
 | **Volumes** | 弹窗创建（1/2/5/10 GiB）；行内删除 |
-| **设置** | 可滚动；语言、主题、会话 CPU / 内存（下次新建会话生效） |
+| **设置** | 可滚动；语言、主题、关闭窗口行为、会话 CPU / 内存（下次新建会话生效） |
 
-Logs 走 fork 的 `LogsOptions`（底层 `wslc --session wslc-desktop container logs`）。退出应用**不会** `terminate` 会话，便于下次重连。
+Logs 走 fork 的 `LogsOptions`（底层 `wslc --session wslc-desktop container logs`）。关闭窗口可最小化到托盘（容器继续运行），或退出并停止运行中的容器；删除容器时命名卷需单独确认。会话本身不会在退出时 `terminate`，便于下次重连。
 
 ## 从源码构建
 
