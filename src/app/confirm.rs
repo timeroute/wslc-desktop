@@ -1,6 +1,6 @@
 
 use gpui_kit::component::{
-    ActiveTheme, Sizable as _, StyledExt as _,
+    ActiveTheme, IconName, Sizable as _, StyledExt as _,
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
     h_flex, v_flex,
@@ -60,6 +60,7 @@ impl AppView {
             } => {
                 let removed = self.t().removed;
                 let removed_with_volumes = self.t().removed_container_with_volumes;
+                let volumes_partial = self.t().removed_volumes_partial;
                 self.with_busy(cx, move |client| {
                     client.remove_container(&key)?;
                     if remove_volumes {
@@ -78,10 +79,11 @@ impl AppView {
                                 named_volumes.join(", "),
                             ))
                         } else {
-                            Err(anyhow::anyhow!(
-                                "container removed; volume delete failed: {}",
+                            Err(anyhow::anyhow!(i18n::fmt1(
+                                volumes_partial,
+                                "err",
                                 failed.join("; ")
-                            ))
+                            )))
                         }
                     } else {
                         Ok(i18n::fmt1(removed, "name", &key))
@@ -146,8 +148,23 @@ impl AppView {
             "confirm-remove-modal",
             cx,
             modal_panel(cx)
-                .w(px(460.))
-                .child(div().font_semibold().text_base().child(title))
+                .child(
+                    h_flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_3()
+                        .child(div().font_semibold().text_base().child(title))
+                        .child(
+                            Button::new("confirm-dismiss")
+                                .ghost()
+                                .small()
+                                .icon(IconName::Close)
+                                .tooltip(t.close)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.dismiss_confirm(cx);
+                                })),
+                        ),
+                )
                 .child(
                     div()
                         .text_sm()

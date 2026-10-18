@@ -7,9 +7,11 @@ use gpui_kit::component::{
 };
 use gpui_kit::*;
 
+use crate::i18n;
 use crate::wslc::{APP_VERSION, BackendKind};
 
 use super::state::Section;
+use super::widgets::settings_card;
 use super::AppView;
 
 const SESSION_NAME: &str = "wslc-desktop";
@@ -95,7 +97,11 @@ impl AppView {
                                 if self.status.memory_mb == 0 {
                                     t.overview_na.to_string()
                                 } else {
-                                    format!("{} MiB", self.status.memory_mb)
+                                    i18n::fmt1(
+                                        t.memory_mib,
+                                        "mb",
+                                        self.status.memory_mb.to_string(),
+                                    )
                                 },
                                 None,
                                 cx,
@@ -205,15 +211,9 @@ impl AppView {
         cx: &Context<Self>,
         child: impl IntoElement,
     ) -> impl IntoElement {
-        v_flex()
+        settings_card(cx)
             .flex_1()
             .min_w_0()
-            .gap_3()
-            .p_4()
-            .rounded(cx.theme().radius)
-            .border_1()
-            .border_color(cx.theme().border)
-            .bg(cx.theme().secondary.opacity(0.28))
             .child(div().font_medium().text_sm().child(title))
             .child(child)
     }

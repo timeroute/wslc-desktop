@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-18
+
 ### 修复
 
 - 创建卷遇到 `HRESULT=0x800700B7`（已存在）时给出中文说明，并把会话里已有、列表缺失的卷重新同步进列表。
@@ -30,6 +32,9 @@
   - Drop CLI text/UTF-16 parsing; `sdk_version` keeps SemVer + NuGet matching only.
 - 移除未使用的 `session_stats` / `SessionStats` / `Cmd::Stats` 路径。
   - Remove unused session-stats plumbing.
+
+- 补齐界面文案国际化（引擎徽章、关于 / 更新检查、Inspect·Exec 标题、内存/卷容量单位、卷删除部分失败提示等）；统一卡片 / 徽章 / 日志面板 / 模态框宽度等可复用样式。
+  - Complete remaining UI i18n and share card / badge / log-pane / modal helpers across screens.
 
 ## [0.1.2] - 2026-10-11
 
@@ -76,7 +81,8 @@
 - 容器日志走 [`timeroute/wslc-rs`](https://github.com/timeroute/wslc-rs) 的 `LogsOptions`（`wslc --session wslc-desktop container logs`）。
   - Container logs use the `wslc-rs` fork rather than a separate CLI path.
 
-[Unreleased]: https://github.com/timeroute/wslc-desktop/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/timeroute/wslc-desktop/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/timeroute/wslc-desktop/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/timeroute/wslc-desktop/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/timeroute/wslc-desktop/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/timeroute/wslc-desktop/releases/tag/v0.1.0

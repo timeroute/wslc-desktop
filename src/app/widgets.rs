@@ -3,6 +3,9 @@ use gpui_kit::*;
 
 use super::AppView;
 
+/// Shared width for confirm / close / most modal panels.
+pub(crate) const MODAL_WIDTH: f32 = 480.;
+
 impl AppView {
     pub(crate) fn empty_state(
         &self,
@@ -123,11 +126,47 @@ pub(crate) fn modal_panel(cx: &Context<AppView>) -> Div {
         .m_6()
         .p_5()
         .gap_3()
+        .w(px(MODAL_WIDTH))
         .rounded(cx.theme().radius_lg)
         .border_1()
         .border_color(cx.theme().border)
         .bg(cx.theme().background)
         .shadow_md()
+}
+
+/// Compact status / phase pill (engine LIVE, pull phase, setup step).
+pub(crate) fn status_badge(
+    label: impl Into<SharedString>,
+    color: Hsla,
+    cx: &Context<AppView>,
+) -> impl IntoElement {
+    div()
+        .px_2()
+        .py_0p5()
+        .rounded(cx.theme().radius)
+        .bg(color.opacity(0.18))
+        .text_color(color)
+        .text_xs()
+        .font_semibold()
+        .child(label.into())
+}
+
+/// Bordered scrollable log body used by pull / setup / container logs modals.
+pub(crate) fn scroll_log_pane(
+    id: impl Into<ElementId>,
+    height: f32,
+    cx: &Context<AppView>,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .h(px(height))
+        .w_full()
+        .overflow_y_scroll()
+        .rounded(cx.theme().radius)
+        .border_1()
+        .border_color(cx.theme().border)
+        .bg(cx.theme().background.opacity(0.65))
+        .p_2()
 }
 
 /// Settings / overview card surface.
@@ -139,4 +178,20 @@ pub(crate) fn settings_card(cx: &Context<AppView>) -> Div {
         .border_1()
         .border_color(cx.theme().border)
         .bg(cx.theme().secondary.opacity(0.28))
+}
+
+/// Settings card with shared title + muted hint header.
+pub(crate) fn settings_card_section(
+    title: impl Into<SharedString>,
+    hint: impl Into<SharedString>,
+    cx: &Context<AppView>,
+) -> Div {
+    settings_card(cx)
+        .child(div().font_medium().text_sm().child(title.into()))
+        .child(
+            div()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child(hint.into()),
+        )
 }

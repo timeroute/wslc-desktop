@@ -22,7 +22,8 @@ use super::state::{ConfirmAction, PullPhase, MAX_PULL_LOG_LINES};
 use super::AppView;
 use super::poll::recv_all;
 use super::widgets::{
-    list_header, modal_panel, modal_scrim, resource_list, resource_row, row_actions,
+    list_header, modal_panel, modal_scrim, resource_list, resource_row, row_actions, scroll_log_pane,
+    status_badge,
 };
 
 impl AppView {
@@ -174,15 +175,7 @@ impl AppView {
             PullPhase::Success => cx.theme().green,
             PullPhase::Failed => cx.theme().red,
         };
-        div()
-            .px_2()
-            .py_0p5()
-            .rounded(cx.theme().radius)
-            .bg(color.opacity(0.18))
-            .text_color(color)
-            .text_xs()
-            .font_semibold()
-            .child(self.pull_phase.label(self.t()))
+        status_badge(self.pull_phase.label(self.t()), color, cx)
     }
     pub(crate) fn render_image_row(
         &self,
@@ -341,30 +334,20 @@ impl AppView {
                             ),
                     )
                     .child(
-                        div()
-                            .id("pull-log")
-                            .h(px(220.))
-                            .w_full()
-                            .overflow_y_scroll()
-                            .rounded(cx.theme().radius)
-                            .border_1()
-                            .border_color(cx.theme().border)
-                            .bg(cx.theme().background.opacity(0.65))
-                            .p_2()
-                            .child(
-                                v_flex().gap_0p5().w_full().map(|list| {
-                                    if log_lines.is_empty() {
-                                        list.child(
-                                            div()
-                                                .text_xs()
-                                                .text_color(cx.theme().muted_foreground)
-                                                .child(t.pull_logs_placeholder),
-                                        )
-                                    } else {
-                                        list.children(log_lines)
-                                    }
-                                }),
-                            ),
+                        scroll_log_pane("pull-log", 220., cx).child(
+                            v_flex().gap_0p5().w_full().map(|list| {
+                                if log_lines.is_empty() {
+                                    list.child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(t.pull_logs_placeholder),
+                                    )
+                                } else {
+                                    list.children(log_lines)
+                                }
+                            }),
+                        ),
                     )
                     .when(can_close, |el| {
                         el.child(

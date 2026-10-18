@@ -73,6 +73,7 @@ fn main() {
 
         let (window_handle, view) = gpui_kit::open_window(window_options, cx, |window, cx| {
             window.activate_window();
+            // Title must stay stable: second-instance activation finds this window by title.
             window.set_window_title("WSLc Desktop");
             let view = cx.new(|cx| AppView::new(window, cx));
             let weak = view.downgrade();

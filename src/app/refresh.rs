@@ -1,7 +1,7 @@
 use std::sync::mpsc;
 use std::time::Duration;
 
-use gpui_kit::component::{ActiveTheme, Theme, ThemeMode, h_flex, label::Label, v_flex};
+use gpui_kit::component::{Theme, ThemeMode, label::Label};
 use gpui_kit::*;
 use smol::Timer;
 
@@ -11,7 +11,7 @@ use crate::wslc::{BackendKind, EngineStatus, WslcClient};
 use super::AppView;
 use super::poll::recv_all;
 use super::state::PullPhase;
-use super::widgets::modal_scrim;
+use super::widgets::{modal_panel, modal_scrim};
 
 impl AppView {
     pub(crate) fn apply_locale(
@@ -339,22 +339,10 @@ impl AppView {
         modal_scrim(
             "busy-overlay",
             cx,
-            h_flex()
+            modal_panel(cx)
+                .w(px(280.))
                 .items_center()
-                .justify_center()
-                .px_6()
-                .py_4()
-                .rounded(cx.theme().radius_lg)
-                .border_1()
-                .border_color(cx.theme().border)
-                .bg(cx.theme().background)
-                .shadow_md()
-                .child(
-                    v_flex()
-                        .gap_1()
-                        .items_center()
-                        .child(Label::new(t.working).text_sm()),
-                ),
+                .child(Label::new(t.working).text_sm()),
         )
     }
 }

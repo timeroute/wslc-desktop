@@ -2,7 +2,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use gpui_kit::component::{
-    ActiveTheme, Disableable as _, Sizable as _, StyledExt as _, ThemeMode,
+    ActiveTheme, Disableable as _, Sizable as _, ThemeMode,
     button::{Button, ButtonVariants as _},
     h_flex, v_flex,
 };
@@ -17,7 +17,7 @@ use crate::wslc::{
 };
 
 use super::state::UpdateCheckPhase;
-use super::widgets::settings_card;
+use super::widgets::settings_card_section;
 use super::AppView;
 
 const CPU_CHOICES: [u32; 5] = [1, 2, 4, 6, 8];
@@ -99,7 +99,7 @@ impl AppView {
                             Err(mpsc::TryRecvError::Empty) => true,
                             Err(mpsc::TryRecvError::Disconnected) => {
                                 this.update_check = UpdateCheckPhase::Failed {
-                                    message: "channel disconnected".into(),
+                                    message: this.t().op_channel_disconnected.to_string(),
                                 };
                                 cx.notify();
                                 false
@@ -168,15 +168,7 @@ impl AppView {
                             .child(t.settings_intro),
                     )
                     .child(
-                        settings_card(cx)
-                            .child(div().font_medium().text_sm().child(t.language))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(t.language_hint),
-                            )
-                            .child(
+                        settings_card_section(t.language, t.language_hint, cx).child(
                                 h_flex()
                                     .gap_2()
                                     .child(
@@ -200,15 +192,7 @@ impl AppView {
                             ),
                     )
                     .child(
-                        settings_card(cx)
-                            .child(div().font_medium().text_sm().child(t.theme))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(t.theme_hint),
-                            )
-                            .child(
+                        settings_card_section(t.theme, t.theme_hint, cx).child(
                                 h_flex()
                                     .gap_2()
                                     .child(
@@ -232,15 +216,7 @@ impl AppView {
                             ),
                     )
                     .child(
-                        settings_card(cx)
-                            .child(div().font_medium().text_sm().child(t.settings_close))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(t.settings_close_hint),
-                            )
-                            .child(
+                        settings_card_section(t.settings_close, t.settings_close_hint, cx).child(
                                 h_flex()
                                     .gap_2()
                                     .flex_wrap()
@@ -289,14 +265,7 @@ impl AppView {
                             ),
                     )
                     .child(
-                        settings_card(cx)
-                            .child(div().font_medium().text_sm().child(t.settings_session))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(t.settings_session_hint),
-                            )
+                        settings_card_section(t.settings_session, t.settings_session_hint, cx)
                             .child(
                                 div()
                                     .text_xs()
@@ -327,7 +296,11 @@ impl AppView {
                                     |mb| {
                                         Button::new(("settings-mem", mb as usize))
                                             .small()
-                                            .label(format!("{} MiB", mb))
+                                            .label(i18n::fmt1(
+                                                t.memory_mib,
+                                                "mb",
+                                                mb.to_string(),
+                                            ))
                                             .when(memory == mb, |b| b.primary())
                                             .on_click(cx.listener(move |this, _, _, cx| {
                                                 this.session_prefs.memory_mb = mb;
@@ -341,23 +314,21 @@ impl AppView {
                                 div()
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
-                                    .child(format!(
-                                        "{} · {} CPU · {} MiB",
-                                        SessionPrefs::path().display(),
-                                        self.session_prefs.cpu_count,
-                                        self.session_prefs.memory_mb
+                                    .child(i18n::fmt2(
+                                        &i18n::fmt1(
+                                            t.settings_session_summary,
+                                            "path",
+                                            SessionPrefs::path().display().to_string(),
+                                        ),
+                                        "cpu",
+                                        self.session_prefs.cpu_count.to_string(),
+                                        "memory",
+                                        self.session_prefs.memory_mb.to_string(),
                                     )),
                             ),
                     )
                     .child(
-                        settings_card(cx)
-                            .child(div().font_medium().text_sm().child(t.settings_about))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(t.settings_about_hint),
-                            )
+                        settings_card_section(t.settings_about, t.settings_about_hint, cx)
                             .child(
                                 div().text_sm().child(format!(
                                     "{}  {}",

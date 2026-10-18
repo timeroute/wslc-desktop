@@ -173,7 +173,6 @@ impl AppView {
             "close-prompt-modal",
             cx,
             modal_panel(cx)
-                .w(px(480.))
                 .child(
                     h_flex()
                         .items_center()

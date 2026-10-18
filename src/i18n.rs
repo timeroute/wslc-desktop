@@ -39,6 +39,7 @@ impl Locale {
 }
 
 pub struct Strings {
+    pub app_name: &'static str,
     pub app_subtitle: &'static str,
     pub browse: &'static str,
     pub overview: &'static str,
@@ -62,7 +63,11 @@ pub struct Strings {
     pub overview_volumes: &'static str,
     pub overview_status_live: &'static str,
     pub overview_status_off: &'static str,
+    pub engine_badge_live: &'static str,
+    pub engine_badge_off: &'static str,
     pub overview_na: &'static str,
+    pub memory_mib: &'static str,
+    pub volume_size_gib: &'static str,
     pub overview_persist_hint: &'static str,
 
     pub refresh: &'static str,
@@ -196,7 +201,9 @@ pub struct Strings {
 
     pub container_logs_title: &'static str,
     pub container_inspect_title: &'static str,
+    pub container_inspect_heading: &'static str,
     pub container_exec_title: &'static str,
+    pub container_exec_heading: &'static str,
     pub container_exec_intro: &'static str,
     pub container_exec_placeholder: &'static str,
     pub container_exec_run: &'static str,
@@ -220,6 +227,7 @@ pub struct Strings {
     pub settings_session_hint: &'static str,
     pub settings_cpu: &'static str,
     pub settings_memory: &'static str,
+    pub settings_session_summary: &'static str,
     pub settings_prefs_saved: &'static str,
     pub settings_close: &'static str,
     pub settings_close_hint: &'static str,
@@ -269,6 +277,7 @@ pub struct Strings {
     pub restarted: &'static str,
     pub removed: &'static str,
     pub removed_container_with_volumes: &'static str,
+    pub removed_volumes_partial: &'static str,
     pub created_container: &'static str,
     pub created_volume: &'static str,
     pub pulling_image: &'static str,
@@ -290,6 +299,7 @@ pub struct Strings {
 }
 
 pub static EN: Strings = Strings {
+    app_name: "WSLc Desktop",
     app_subtitle: "WSL Containers",
     browse: "Browse",
     overview: "Overview",
@@ -313,7 +323,11 @@ pub static EN: Strings = Strings {
     overview_volumes: "Volumes",
     overview_status_live: "Connected (LIVE)",
     overview_status_off: "Unavailable (OFF)",
+    engine_badge_live: "LIVE",
+    engine_badge_off: "OFF",
     overview_na: "—",
+    memory_mib: "{mb} MiB",
+    volume_size_gib: "{gib} GiB",
     overview_persist_hint: "Closing the window can minimize to the tray (containers keep running) or quit and stop running containers. Named volumes are never deleted unless you confirm them separately.",
     overview_cpu: "CPU",
     overview_memory: "Memory",
@@ -449,7 +463,9 @@ pub static EN: Strings = Strings {
 
     container_logs_title: "Container logs",
     container_inspect_title: "Container inspect",
+    container_inspect_heading: "{name} · Inspect",
     container_exec_title: "Exec",
+    container_exec_heading: "{name} · Exec",
     container_exec_intro: "Run a one-shot command (non-interactive). Example: uname -a",
     container_exec_placeholder: "uname -a",
     container_exec_run: "Run",
@@ -473,6 +489,7 @@ pub static EN: Strings = Strings {
     settings_session_hint: "CPU and memory for the wslc-desktop session. Saved immediately; applied the next time a new session is created (existing sessions keep their original limits).",
     settings_cpu: "CPU count",
     settings_memory: "Memory (MiB)",
+    settings_session_summary: "{path} · {cpu} CPU · {memory} MiB",
     settings_prefs_saved: "Session preferences saved",
     settings_close: "Close window",
     settings_close_hint: "Choose what the window close button does. “Ask each time” restores the first-run prompt.",
@@ -514,6 +531,7 @@ pub static EN: Strings = Strings {
     restarted: "Restarted {name}",
     removed: "Removed {name}",
     removed_container_with_volumes: "Removed {name} and volumes {volumes}",
+    removed_volumes_partial: "Container removed; volume delete failed: {err}",
     created_container: "Created {name}",
     created_volume: "Created volume {name}",
     pulling_image: "Pulling {name}…",
@@ -535,6 +553,7 @@ pub static EN: Strings = Strings {
 };
 
 pub static ZH: Strings = Strings {
+    app_name: "WSLc Desktop",
     app_subtitle: "WSL 容器",
     browse: "浏览",
     overview: "总览",
@@ -558,7 +577,11 @@ pub static ZH: Strings = Strings {
     overview_volumes: "卷",
     overview_status_live: "已连接（LIVE）",
     overview_status_off: "不可用（OFF）",
+    engine_badge_live: "LIVE",
+    engine_badge_off: "OFF",
     overview_na: "—",
+    memory_mib: "{mb} MiB",
+    volume_size_gib: "{gib} GiB",
     overview_persist_hint: "关闭窗口时可最小化到托盘（容器继续运行），或退出并停止运行中的容器。命名卷不会被顺手删掉，除非你在删除容器时单独确认。",
     overview_cpu: "CPU",
     overview_memory: "内存",
@@ -694,7 +717,9 @@ pub static ZH: Strings = Strings {
 
     container_logs_title: "容器日志",
     container_inspect_title: "容器检查",
+    container_inspect_heading: "{name} · 检查",
     container_exec_title: "执行命令",
+    container_exec_heading: "{name} · 执行",
     container_exec_intro: "运行一次性命令（非交互）。例如：uname -a",
     container_exec_placeholder: "uname -a",
     container_exec_run: "运行",
@@ -718,6 +743,7 @@ pub static ZH: Strings = Strings {
     settings_session_hint: "wslc-desktop 会话的 CPU 与内存。立即保存；仅在新建会话时生效（已有会话仍沿用原限额）。",
     settings_cpu: "CPU 数量",
     settings_memory: "内存（MiB）",
+    settings_session_summary: "{path} · {cpu} CPU · {memory} MiB",
     settings_prefs_saved: "会话偏好已保存",
     settings_close: "关闭窗口",
     settings_close_hint: "设置点关闭按钮时的行为。「每次询问」会恢复首次关闭时的提示。",
@@ -759,6 +785,7 @@ pub static ZH: Strings = Strings {
     restarted: "已重启 {name}",
     removed: "已删除 {name}",
     removed_container_with_volumes: "已删除 {name} 及卷 {volumes}",
+    removed_volumes_partial: "容器已删除，但删除卷失败：{err}",
     created_container: "已创建 {name}",
     created_volume: "已创建卷 {name}",
     pulling_image: "正在拉取 {name}…",

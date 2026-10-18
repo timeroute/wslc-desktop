@@ -19,7 +19,7 @@ use crate::wslc::{
 use super::AppView;
 use super::poll::recv_all;
 use super::state::{MAX_SDK_LOG_LINES, SdkSetupPhase};
-use super::widgets::{modal_panel, modal_scrim};
+use super::widgets::{modal_panel, modal_scrim, scroll_log_pane, status_badge};
 
 impl AppView {
     pub(crate) fn append_sdk_log(&mut self, line: impl Into<SharedString>) {
@@ -301,17 +301,7 @@ impl AppView {
                             .child(index.to_string()),
                     )
                     .child(div().flex_1().text_sm().font_medium().child(title))
-                    .child(
-                        div()
-                            .px_2()
-                            .py_0p5()
-                            .rounded(cx.theme().radius)
-                            .bg(color.opacity(0.18))
-                            .text_color(color)
-                            .text_xs()
-                            .font_semibold()
-                            .child(badge),
-                    ),
+                    .child(status_badge(badge, color, cx)),
             )
             .when_some(detail, |row, (text, color)| {
                 row.child(div().pl_6().text_xs().text_color(color).child(text))
@@ -435,17 +425,8 @@ impl AppView {
                 .when(logs_open, |panel| {
                     panel
                         .child(
-                            div()
-                                .id("sdk-setup-logs")
-                                .h(px(220.))
-                                .w_full()
-                                .overflow_y_scroll()
-                                .rounded(cx.theme().radius)
-                                .border_1()
-                                .border_color(cx.theme().border)
-                                .bg(cx.theme().background.opacity(0.65))
-                                .p_2()
-                                .child(v_flex().gap_0p5().w_full().map(|list| {
+                            scroll_log_pane("sdk-setup-logs", 220., cx).child(
+                                v_flex().gap_0p5().w_full().map(|list| {
                                     if logs.is_empty() {
                                         list.child(
                                             div()
