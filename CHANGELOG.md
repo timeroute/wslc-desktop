@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+### 修复
+
+- 创建卷遇到 `HRESULT=0x800700B7`（已存在）时给出中文说明，并把会话里已有、列表缺失的卷重新同步进列表。
+  - Map volume-create `0x800700B7` (already exists) to a clear message and re-list orphan session VHDs.
+
 ### 新增
 
 - 删除容器时可单独确认是否同时删除关联命名卷（默认不删，避免误清数据库等数据）。
