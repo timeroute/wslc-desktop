@@ -17,6 +17,8 @@
   - Removing a container can optionally delete attached named volumes; off by default.
 - 关闭窗口首次提示：最小化到系统托盘（容器继续运行）或退出并停止本会话所有运行中容器；选择会写入设置，可随时改。托盘图标常驻，可显示窗口 / 退出并保留容器 / 退出并停止容器。
   - First close asks minimize-to-tray vs quit-and-stop; preference is saved. Resident tray icon for show / quit-keep / quit-stop.
+- 设置页底部「关于」：版本号、GitHub / 网站链接；对照 GitHub Releases 检查更新，有新版本时跳转到对应 Release 页。
+  - Settings → About: version, GitHub/website links, and a GitHub Releases update check that opens the release page.
 
 ### 变更
 

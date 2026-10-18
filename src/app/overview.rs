@@ -7,13 +7,12 @@ use gpui_kit::component::{
 };
 use gpui_kit::*;
 
-use crate::wslc::BackendKind;
+use crate::wslc::{APP_VERSION, BackendKind};
 
 use super::state::Section;
 use super::AppView;
 
 const SESSION_NAME: &str = "wslc-desktop";
-const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 impl AppView {
     pub(crate) fn render_overview(&self, cx: &mut Context<Self>) -> impl IntoElement {

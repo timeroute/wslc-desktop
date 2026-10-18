@@ -148,13 +148,11 @@ impl AppView {
                                 cx.listener(|this, _, window, cx| {
                                     window.prevent_default();
                                     cx.stop_propagation();
-                                    this.section = Section::Settings;
-                                    cx.notify();
+                                    this.open_settings(cx);
                                 }),
                             )
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.section = Section::Settings;
-                                cx.notify();
+                                this.open_settings(cx);
                             })),
                     ),
             )

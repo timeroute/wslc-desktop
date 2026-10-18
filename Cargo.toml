@@ -29,15 +29,16 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 smol = "2"
 sys-locale = "0.3"
+# GitHub release check (About) + Windows NuGet SDK fetch.
+ureq = { version = "2.12", default-features = true, features = ["json"] }
 
 # Official WSL Containers SDK bindings (`wslcsdk.dll`). Windows host only.
-# ureq/zip: download matching Microsoft.WSL.Containers native DLL at runtime.
+# zip: extract matching Microsoft.WSL.Containers native DLL at runtime.
 [target.'cfg(windows)'.dependencies]
 # Own fork of wslc-rs (OpenContainer / Logs / named volumes / extra SDK exports).
 # Bump `rev` after pushing patches to https://github.com/timeroute/wslc-rs .
 # Prefer git over vendor so desktop tracks the fork tip without copying the tree.
 wslc = { git = "https://github.com/timeroute/wslc-rs", rev = "9fbcd72f6967f79d0dc805648120eaec77364a2e" }
-ureq = { version = "2.12", default-features = true, features = ["json"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 gpui-tray = { version = "0.1", default-features = false, features = ["gpui-kit", "menu-state"] }
 windows-sys = { version = "0.61", features = [

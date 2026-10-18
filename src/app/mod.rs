@@ -28,7 +28,7 @@ mod widgets;
 
 pub use state::Section;
 
-use state::{ConfirmAction, PullPhase, SdkSetupPhase};
+use state::{ConfirmAction, PullPhase, SdkSetupPhase, UpdateCheckPhase};
 
 /// Shared handles so tray actions can reach the main window / view.
 pub struct DesktopShell {
@@ -106,6 +106,8 @@ pub struct AppView {
     sdk_logs_open: bool,
     sdk_logs_copied: bool,
     sdk_log_error: Option<SharedString>,
+    update_check: UpdateCheckPhase,
+    update_check_poll_generation: u64,
 }
 
 impl AppView {
@@ -212,6 +214,8 @@ impl AppView {
             sdk_logs_open: false,
             sdk_logs_copied: false,
             sdk_log_error: None,
+            update_check: UpdateCheckPhase::Idle,
+            update_check_poll_generation: 0,
         };
         view.begin_sdk_setup(false, cx);
         view

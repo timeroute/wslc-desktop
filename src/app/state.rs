@@ -54,6 +54,24 @@ pub(crate) enum SdkSetupPhase {
     Failed,
 }
 
+/// Background GitHub Releases check for the Settings → About card.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) enum UpdateCheckPhase {
+    #[default]
+    Idle,
+    Checking,
+    UpToDate {
+        latest: String,
+    },
+    Available {
+        latest: String,
+        url: String,
+    },
+    Failed {
+        message: String,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ConfirmAction {
     RemoveContainer {

@@ -25,12 +25,16 @@ pub mod setup_log;
 mod syspath;
 pub mod templates;
 mod types;
+mod update_check;
 #[cfg(windows)]
 mod wsl_probe;
 
 pub use prefs::{CloseBehavior, SessionPrefs};
 pub use templates::{ContainerTemplate, TemplateEditError, TemplateStore, UpsertKind};
 pub use types::*;
+pub use update_check::{
+    APP_VERSION, GITHUB_REPO_URL, HOMEPAGE_URL, UpdateStatus, check_latest, open_url, releases_url,
+};
 
 /// Minimum WSL release the first-launch check accepts (`2.9.3`).
 pub fn min_wsl_version_text() -> String {
