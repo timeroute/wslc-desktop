@@ -8,6 +8,8 @@
 
 - 创建卷遇到 `HRESULT=0x800700B7`（已存在）时给出中文说明，并把会话里已有、列表缺失的卷重新同步进列表。
   - Map volume-create `0x800700B7` (already exists) to a clear message and re-list orphan session VHDs.
+- 程序已在运行时再次点桌面图标：不再弹「不能多开」，直接显示并前置已有窗口（含最小化 / 托盘隐藏）。
+  - A second launch focuses the existing window (including tray-hidden) instead of showing an already-running dialog.
 
 ### 新增
 

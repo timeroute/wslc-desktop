@@ -1,4 +1,7 @@
 //! Per-user single-instance guard so two app processes cannot share one session.
+//!
+//! A second launch finds the existing main window, shows it (even when hidden
+//! to the tray), and exits silently — no "already running" MessageBox.
 
 pub struct InstanceLock {
     #[cfg(windows)]
@@ -29,11 +32,14 @@ pub fn try_acquire() -> Result<InstanceLock, AcquireError> {
     }
 }
 
-/// Tell the user another instance is already open (Windows MessageBox).
-pub fn notify_already_running() {
+/// Bring the already-running instance's main window to the foreground.
+///
+/// Used when a second process hits the single-instance mutex: show the window
+/// even if it was minimized or hidden to the tray, then exit without a dialog.
+pub fn activate_existing_instance() {
     #[cfg(windows)]
     {
-        notify_windows();
+        activate_windows();
     }
 }
 
@@ -61,24 +67,27 @@ fn acquire_windows() -> Result<InstanceLock, AcquireError> {
 }
 
 #[cfg(windows)]
-fn notify_windows() {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONINFORMATION, MB_OK};
-
-    let (title, body) = if crate::i18n::Locale::from_system() == crate::i18n::Locale::Zh {
-        (
-            "WSLc Desktop",
-            "WSLc Desktop 已在运行，不能同时打开多个实例。",
-        )
-    } else {
-        (
-            "WSLc Desktop",
-            "WSLc Desktop is already running. Only one instance is allowed.",
-        )
+fn activate_windows() {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        BringWindowToTop, FindWindowW, IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE,
+        SW_SHOW,
     };
-    let title = wide(title);
-    let body = wide(body);
+
+    // Must match `window.set_window_title("WSLc Desktop")` in `main`.
+    let title = wide("WSLc Desktop");
     unsafe {
-        MessageBoxW(std::ptr::null_mut(), body.as_ptr(), title.as_ptr(), MB_OK | MB_ICONINFORMATION);
+        let hwnd = FindWindowW(std::ptr::null(), title.as_ptr());
+        if hwnd.is_null() {
+            return;
+        }
+        if IsIconic(hwnd) != 0 {
+            ShowWindow(hwnd, SW_RESTORE);
+        } else {
+            // Covers normal windows and SW_HIDE (tray minimize).
+            ShowWindow(hwnd, SW_SHOW);
+        }
+        let _ = BringWindowToTop(hwnd);
+        let _ = SetForegroundWindow(hwnd);
     }
 }
 

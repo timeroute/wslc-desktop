@@ -18,7 +18,8 @@ fn main() {
     let _instance = match single_instance::try_acquire() {
         Ok(lock) => Some(lock),
         Err(single_instance::AcquireError::AlreadyRunning) => {
-            single_instance::notify_already_running();
+            // Focus the running window (including tray-hidden) instead of a dialog.
+            single_instance::activate_existing_instance();
             return;
         }
         Err(single_instance::AcquireError::Failed(_)) => {
