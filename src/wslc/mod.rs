@@ -10,6 +10,7 @@ use std::thread;
 use anyhow::{Result, anyhow};
 
 mod catalog;
+mod errors;
 #[cfg(windows)]
 mod live;
 mod paths;
@@ -24,12 +25,16 @@ pub mod setup_log;
 mod syspath;
 pub mod templates;
 mod types;
+mod update_check;
 #[cfg(windows)]
 mod wsl_probe;
 
-pub use prefs::SessionPrefs;
+pub use prefs::{CloseBehavior, SessionPrefs};
 pub use templates::{ContainerTemplate, TemplateEditError, TemplateStore, UpsertKind};
 pub use types::*;
+pub use update_check::{
+    APP_VERSION, GITHUB_REPO_URL, HOMEPAGE_URL, UpdateStatus, check_latest, open_url, releases_url,
+};
 
 /// Minimum WSL release the first-launch check accepts (`2.9.3`).
 pub fn min_wsl_version_text() -> String {
@@ -339,6 +344,25 @@ impl WslcClient {
             #[cfg(not(windows))]
             Backend::Unsupported => Err(anyhow!("WSL Containers SDK unavailable")),
         }
+    }
+
+    /// Stop every running container in this desktop session. Returns how many were stopped.
+    pub fn stop_all_running_containers(&self) -> Result<usize> {
+        let containers = self.list_containers(true)?;
+        let mut stopped = 0usize;
+        for item in containers {
+            if !item.is_running() {
+                continue;
+            }
+            let key = if item.name.is_empty() {
+                item.id.clone()
+            } else {
+                item.name.clone()
+            };
+            self.stop_container(&key)?;
+            stopped += 1;
+        }
+        Ok(stopped)
     }
 
     pub fn restart_container(&self, name_or_id: &str) -> Result<()> {

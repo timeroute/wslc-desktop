@@ -1,7 +1,7 @@
 use std::sync::mpsc;
 use std::time::Duration;
 
-use gpui_kit::component::{ActiveTheme, Theme, ThemeMode, h_flex, label::Label, v_flex};
+use gpui_kit::component::{Theme, ThemeMode, label::Label};
 use gpui_kit::*;
 use smol::Timer;
 
@@ -11,7 +11,7 @@ use crate::wslc::{BackendKind, EngineStatus, WslcClient};
 use super::AppView;
 use super::poll::recv_all;
 use super::state::PullPhase;
-use super::widgets::modal_scrim;
+use super::widgets::{modal_panel, modal_scrim};
 
 impl AppView {
     pub(crate) fn apply_locale(
@@ -25,6 +25,7 @@ impl AppView {
         }
         self.locale = locale;
         let t = self.t();
+        super::tray_icon::refresh_menu(cx);
         self.name_input.update(cx, |state, cx| {
             state.set_placeholder(t.name_placeholder, window, cx);
         });
@@ -270,7 +271,7 @@ impl AppView {
     }
 
     /// Returns `true` while the background op is still running.
-    fn poll_busy(&mut self, cx: &mut Context<Self>) -> bool {
+    pub(crate) fn poll_busy(&mut self, cx: &mut Context<Self>) -> bool {
         let Some(rx) = self.busy_rx.take() else {
             return false;
         };
@@ -295,12 +296,28 @@ impl AppView {
                     if self.create_modal_open {
                         self.create_modal_open = false;
                     }
-                    self.set_status(msg, cx);
-                    self.refresh(cx);
+                    if self.pending_quit_after_stop {
+                        self.set_status(msg, cx);
+                        self.finish_quit_after_stop(cx);
+                    } else {
+                        self.set_status(msg, cx);
+                        self.refresh(cx);
+                    }
                 }
                 Err(err) => {
-                    let msg = i18n::fmt1(self.t().error_prefix, "err", err.to_string());
+                    let raw = err.to_string();
+                    let msg = if let Some(name) = raw.strip_prefix("__VOLUME_EXISTS__\0") {
+                        // Catalog may have been repaired; refresh so the row appears.
+                        self.refresh(cx);
+                        i18n::fmt1(self.t().volume_already_exists, "name", name)
+                    } else {
+                        i18n::fmt1(self.t().error_prefix, "err", raw)
+                    };
                     self.set_status(msg, cx);
+                    if self.pending_quit_after_stop {
+                        // Still leave so a stuck stop cannot pin the UI forever.
+                        self.finish_quit_after_stop(cx);
+                    }
                 }
             }
             cx.notify();
@@ -322,22 +339,10 @@ impl AppView {
         modal_scrim(
             "busy-overlay",
             cx,
-            h_flex()
+            modal_panel(cx)
+                .w(px(280.))
                 .items_center()
-                .justify_center()
-                .px_6()
-                .py_4()
-                .rounded(cx.theme().radius_lg)
-                .border_1()
-                .border_color(cx.theme().border)
-                .bg(cx.theme().background)
-                .shadow_md()
-                .child(
-                    v_flex()
-                        .gap_1()
-                        .items_center()
-                        .child(Label::new(t.working).text_sm()),
-                ),
+                .child(Label::new(t.working).text_sm()),
         )
     }
 }

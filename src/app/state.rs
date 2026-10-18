@@ -54,9 +54,34 @@ pub(crate) enum SdkSetupPhase {
     Failed,
 }
 
+/// Background GitHub Releases check for the Settings → About card.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) enum UpdateCheckPhase {
+    #[default]
+    Idle,
+    Checking,
+    UpToDate {
+        latest: String,
+    },
+    Available {
+        latest: String,
+        url: String,
+    },
+    Failed {
+        message: String,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ConfirmAction {
-    RemoveContainer { key: String, label: String },
+    RemoveContainer {
+        key: String,
+        label: String,
+        /// Session named volumes attached to this container (may be empty).
+        named_volumes: Vec<String>,
+        /// When true, also delete `named_volumes` after the container is removed.
+        remove_volumes: bool,
+    },
     RemoveImage { reference: String },
     RemoveVolume { name: String },
 }
@@ -82,6 +107,7 @@ impl super::AppView {
             || self.logs_modal_open
             || self.exec_modal_open
             || self.confirm.is_some()
+            || self.close_prompt_open
             || self.volume_modal_open
             || (self.create_modal_open && self.busy)
     }

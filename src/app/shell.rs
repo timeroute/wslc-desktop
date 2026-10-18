@@ -13,29 +13,21 @@ use crate::i18n::{self};
 use crate::wslc::BackendKind;
 
 use super::state::Section;
+use super::widgets::status_badge;
 use super::AppView;
 
 impl AppView {
     pub(crate) fn render_engine_badge(&self, cx: &Context<Self>) -> impl IntoElement {
+        let t = self.t();
         let (label, color) = match self.status.backend {
-            BackendKind::Live => ("LIVE", cx.theme().green),
-            BackendKind::Unavailable => ("OFF", cx.theme().red),
+            BackendKind::Live => (t.engine_badge_live, cx.theme().green),
+            BackendKind::Unavailable => (t.engine_badge_off, cx.theme().red),
         };
 
         h_flex()
             .items_center()
             .gap_2()
-            .child(
-                div()
-                    .px_2()
-                    .py_0p5()
-                    .rounded(cx.theme().radius)
-                    .bg(color.opacity(0.18))
-                    .text_color(color)
-                    .text_xs()
-                    .font_semibold()
-                    .child(label),
-            )
+            .child(status_badge(label, color, cx))
             .child(
                 div()
                     .text_xs()
@@ -70,7 +62,7 @@ impl AppView {
                                     div()
                                         .font_semibold()
                                         .text_sm()
-                                        .child("WSLc Desktop"),
+                                        .child(t.app_name),
                                 )
                                 .child(
                                     div()
@@ -148,13 +140,11 @@ impl AppView {
                                 cx.listener(|this, _, window, cx| {
                                     window.prevent_default();
                                     cx.stop_propagation();
-                                    this.section = Section::Settings;
-                                    cx.notify();
+                                    this.open_settings(cx);
                                 }),
                             )
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.section = Section::Settings;
-                                cx.notify();
+                                this.open_settings(cx);
                             })),
                     ),
             )

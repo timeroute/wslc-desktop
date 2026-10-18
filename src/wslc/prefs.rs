@@ -1,4 +1,4 @@
-//! Desktop preferences (session CPU / memory). Applied on session start.
+//! Desktop preferences (session CPU / memory / close behavior). Applied on session start.
 
 use std::fs;
 use std::path::PathBuf;
@@ -10,10 +10,25 @@ use super::paths::{app_data_dir, write_atomic};
 pub const DEFAULT_CPU_COUNT: u32 = 2;
 pub const DEFAULT_MEMORY_MB: u32 = 2048;
 
+/// What happens when the user closes the main window.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CloseBehavior {
+    /// First close (or after reset): ask minimize vs quit-and-stop.
+    #[default]
+    Ask,
+    /// Hide the window; keep the tray icon and leave containers running.
+    MinimizeToTray,
+    /// Stop every running container in this session, then quit the app.
+    QuitAndStopContainers,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SessionPrefs {
     pub cpu_count: u32,
     pub memory_mb: u32,
+    #[serde(default)]
+    pub close_behavior: CloseBehavior,
 }
 
 impl Default for SessionPrefs {
@@ -21,6 +36,7 @@ impl Default for SessionPrefs {
         Self {
             cpu_count: DEFAULT_CPU_COUNT,
             memory_mb: DEFAULT_MEMORY_MB,
+            close_behavior: CloseBehavior::Ask,
         }
     }
 }
@@ -70,9 +86,17 @@ mod tests {
         let p = SessionPrefs {
             cpu_count: 4,
             memory_mb: 4096,
+            close_behavior: CloseBehavior::MinimizeToTray,
         };
         let bytes = serde_json::to_vec(&p).unwrap();
         let back: SessionPrefs = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(back, p);
+    }
+
+    #[test]
+    fn prefs_default_close_ask_when_missing() {
+        let json = br#"{"cpu_count":2,"memory_mb":2048}"#;
+        let back: SessionPrefs = serde_json::from_slice(json).unwrap();
+        assert_eq!(back.close_behavior, CloseBehavior::Ask);
     }
 }

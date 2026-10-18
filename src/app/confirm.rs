@@ -1,9 +1,11 @@
 
 use gpui_kit::component::{
-    ActiveTheme, Sizable as _, StyledExt as _,
+    ActiveTheme, IconName, Sizable as _, StyledExt as _,
     button::{Button, ButtonVariants as _},
-    h_flex,
+    checkbox::Checkbox,
+    h_flex, v_flex,
 };
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::i18n::{self};
@@ -18,6 +20,7 @@ impl AppView {
             || self.busy
             || self.pull_phase == PullPhase::Pulling
             || self.confirm.is_some()
+            || self.close_prompt_open
         {
             return;
         }
@@ -30,16 +33,61 @@ impl AppView {
         cx.notify();
     }
 
+    pub(crate) fn set_confirm_remove_volumes(&mut self, checked: bool, cx: &mut Context<Self>) {
+        if let Some(ConfirmAction::RemoveContainer {
+            remove_volumes,
+            named_volumes,
+            ..
+        }) = self.confirm.as_mut()
+        {
+            if !named_volumes.is_empty() {
+                *remove_volumes = checked;
+                cx.notify();
+            }
+        }
+    }
+
     pub(crate) fn submit_confirm(&mut self, cx: &mut Context<Self>) {
         let Some(action) = self.confirm.take() else {
             return;
         };
         match action {
-            ConfirmAction::RemoveContainer { key, .. } => {
-                let template = self.t().removed;
+            ConfirmAction::RemoveContainer {
+                key,
+                remove_volumes,
+                named_volumes,
+                ..
+            } => {
+                let removed = self.t().removed;
+                let removed_with_volumes = self.t().removed_container_with_volumes;
+                let volumes_partial = self.t().removed_volumes_partial;
                 self.with_busy(cx, move |client| {
                     client.remove_container(&key)?;
-                    Ok(i18n::fmt1(template, "name", &key))
+                    if remove_volumes {
+                        let mut failed = Vec::new();
+                        for name in &named_volumes {
+                            if let Err(err) = client.remove_volume(name) {
+                                failed.push(format!("{name}: {err}"));
+                            }
+                        }
+                        if failed.is_empty() {
+                            Ok(i18n::fmt2(
+                                removed_with_volumes,
+                                "name",
+                                &key,
+                                "volumes",
+                                named_volumes.join(", "),
+                            ))
+                        } else {
+                            Err(anyhow::anyhow!(i18n::fmt1(
+                                volumes_partial,
+                                "err",
+                                failed.join("; ")
+                            )))
+                        }
+                    } else {
+                        Ok(i18n::fmt1(removed, "name", &key))
+                    }
                 });
             }
             ConfirmAction::RemoveImage { reference } => {
@@ -66,15 +114,33 @@ impl AppView {
             .as_ref()
             .expect("confirm modal rendered only when open");
         let title = t.confirm_remove_title;
-        let body = match action {
-            ConfirmAction::RemoveContainer { label, .. } => {
-                i18n::fmt1(t.confirm_remove_container, "name", label)
+        let (body, volumes_row) = match action {
+            ConfirmAction::RemoveContainer {
+                label,
+                named_volumes,
+                remove_volumes,
+                ..
+            } => {
+                let body = i18n::fmt1(t.confirm_remove_container, "name", label);
+                let volumes_row = if named_volumes.is_empty() {
+                    None
+                } else {
+                    Some((
+                        i18n::fmt1(
+                            t.confirm_remove_container_volumes,
+                            "volumes",
+                            named_volumes.join(", "),
+                        ),
+                        *remove_volumes,
+                    ))
+                };
+                (body, volumes_row)
             }
             ConfirmAction::RemoveImage { reference } => {
-                i18n::fmt1(t.confirm_remove_image, "name", reference)
+                (i18n::fmt1(t.confirm_remove_image, "name", reference), None)
             }
             ConfirmAction::RemoveVolume { name } => {
-                i18n::fmt1(t.confirm_remove_volume, "name", name)
+                (i18n::fmt1(t.confirm_remove_volume, "name", name), None)
             }
         };
 
@@ -82,14 +148,50 @@ impl AppView {
             "confirm-remove-modal",
             cx,
             modal_panel(cx)
-                .w(px(420.))
-                .child(div().font_semibold().text_base().child(title))
+                .child(
+                    h_flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_3()
+                        .child(div().font_semibold().text_base().child(title))
+                        .child(
+                            Button::new("confirm-dismiss")
+                                .ghost()
+                                .small()
+                                .icon(IconName::Close)
+                                .tooltip(t.close)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.dismiss_confirm(cx);
+                                })),
+                        ),
+                )
                 .child(
                     div()
                         .text_sm()
                         .text_color(cx.theme().muted_foreground)
                         .child(body),
                 )
+                .when_some(volumes_row, |panel, (hint, selected)| {
+                    panel.child(
+                        v_flex()
+                            .gap_2()
+                            .pt_1()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(t.confirm_remove_container_volumes_hint),
+                            )
+                            .child(
+                                Checkbox::new("confirm-remove-volumes")
+                                    .label(hint)
+                                    .checked(selected)
+                                    .on_change(cx.listener(|this, checked, _, cx| {
+                                        this.set_confirm_remove_volumes(*checked, cx);
+                                    })),
+                            ),
+                    )
+                })
                 .child(
                     h_flex()
                         .justify_end()

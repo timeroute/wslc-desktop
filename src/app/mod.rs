@@ -10,6 +10,7 @@ use crate::wslc::{
     TemplateStore, VolumeInfo, WslcClient,
 };
 
+mod close;
 mod confirm;
 mod containers;
 mod images;
@@ -21,12 +22,21 @@ mod sdk_setup;
 mod settings;
 mod shell;
 mod state;
+pub(crate) mod tray_icon;
 mod volumes;
 mod widgets;
 
 pub use state::Section;
 
-use state::{ConfirmAction, PullPhase, SdkSetupPhase};
+use state::{ConfirmAction, PullPhase, SdkSetupPhase, UpdateCheckPhase};
+
+/// Shared handles so tray actions can reach the main window / view.
+pub struct DesktopShell {
+    pub window: AnyWindowHandle,
+    pub view: WeakEntity<AppView>,
+}
+
+impl Global for DesktopShell {}
 
 pub struct AppView {
     client: Option<WslcClient>,
@@ -74,6 +84,10 @@ pub struct AppView {
     exec_modal_open: bool,
     exec_target_key: SharedString,
     confirm: Option<ConfirmAction>,
+    close_prompt_open: bool,
+    window_hidden: bool,
+    allow_window_close: bool,
+    pending_quit_after_stop: bool,
     pull_phase: PullPhase,
     pull_status: SharedString,
     pull_progress: f32,
@@ -92,6 +106,8 @@ pub struct AppView {
     sdk_logs_open: bool,
     sdk_logs_copied: bool,
     sdk_log_error: Option<SharedString>,
+    update_check: UpdateCheckPhase,
+    update_check_poll_generation: u64,
 }
 
 impl AppView {
@@ -177,6 +193,10 @@ impl AppView {
             exec_modal_open: false,
             exec_target_key: SharedString::default(),
             confirm: None,
+            close_prompt_open: false,
+            window_hidden: false,
+            allow_window_close: false,
+            pending_quit_after_stop: false,
             pull_phase: PullPhase::Idle,
             pull_status: t.pull_hint.into(),
             pull_progress: 0.0,
@@ -194,6 +214,8 @@ impl AppView {
             sdk_logs_open: false,
             sdk_logs_copied: false,
             sdk_log_error: None,
+            update_check: UpdateCheckPhase::Idle,
+            update_check_poll_generation: 0,
         };
         view.begin_sdk_setup(false, cx);
         view
@@ -256,13 +278,17 @@ impl Render for AppView {
             .when(self.confirm.is_some(), |root| {
                 root.child(self.render_confirm_modal(cx))
             })
+            .when(self.close_prompt_open, |root| {
+                root.child(self.render_close_prompt_modal(cx))
+            })
             .when(
                 self.busy
                     && !show_setup
                     && !self.pull_modal_open
                     && !self.volume_modal_open
                     && !self.exec_modal_open
-                    && self.confirm.is_none(),
+                    && self.confirm.is_none()
+                    && !self.close_prompt_open,
                 |root| root.child(self.render_busy_overlay(cx)),
             )
     }

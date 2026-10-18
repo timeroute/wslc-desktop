@@ -4,6 +4,24 @@
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-18
+
+### 修复
+
+- 创建卷遇到 `HRESULT=0x800700B7`（已存在）时给出中文说明，并把会话里已有、列表缺失的卷重新同步进列表。
+  - Map volume-create `0x800700B7` (already exists) to a clear message and re-list orphan session VHDs.
+- 程序已在运行时再次点桌面图标：不再弹「不能多开」，直接显示并前置已有窗口（含最小化 / 托盘隐藏）。
+  - A second launch focuses the existing window (including tray-hidden) instead of showing an already-running dialog.
+
+### 新增
+
+- 删除容器时可单独确认是否同时删除关联命名卷（默认不删，避免误清数据库等数据）。
+  - Removing a container can optionally delete attached named volumes; off by default.
+- 关闭窗口首次提示：最小化到系统托盘（容器继续运行）或退出并停止本会话所有运行中容器；选择会写入设置，可随时改。托盘图标常驻，可显示窗口 / 退出并保留容器 / 退出并停止容器。
+  - First close asks minimize-to-tray vs quit-and-stop; preference is saved. Resident tray icon for show / quit-keep / quit-stop.
+- 设置页底部「关于」：版本号、GitHub / 网站链接；对照 GitHub Releases 检查更新，有新版本时跳转到对应 Release 页。
+  - Settings → About: version, GitHub/website links, and a GitHub Releases update check that opens the release page.
+
 ### 变更
 
 - 启动门禁只读注册表 `HKLM\...\Lxss\Msi\Version`（与 WSL 自身一致），不再调用 `wsl --version`。缺键即视为未安装。SDK 加载后的版本仍用 `wslc::Service::version()`。
@@ -14,6 +32,9 @@
   - Drop CLI text/UTF-16 parsing; `sdk_version` keeps SemVer + NuGet matching only.
 - 移除未使用的 `session_stats` / `SessionStats` / `Cmd::Stats` 路径。
   - Remove unused session-stats plumbing.
+
+- 补齐界面文案国际化（引擎徽章、关于 / 更新检查、Inspect·Exec 标题、内存/卷容量单位、卷删除部分失败提示等）；统一卡片 / 徽章 / 日志面板 / 模态框宽度等可复用样式。
+  - Complete remaining UI i18n and share card / badge / log-pane / modal helpers across screens.
 
 ## [0.1.2] - 2026-10-11
 
@@ -60,7 +81,8 @@
 - 容器日志走 [`timeroute/wslc-rs`](https://github.com/timeroute/wslc-rs) 的 `LogsOptions`（`wslc --session wslc-desktop container logs`）。
   - Container logs use the `wslc-rs` fork rather than a separate CLI path.
 
-[Unreleased]: https://github.com/timeroute/wslc-desktop/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/timeroute/wslc-desktop/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/timeroute/wslc-desktop/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/timeroute/wslc-desktop/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/timeroute/wslc-desktop/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/timeroute/wslc-desktop/releases/tag/v0.1.0

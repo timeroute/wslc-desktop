@@ -31,9 +31,9 @@
 | **Containers** | 创建（端口 / bind / 命名卷）；行内 Start / Stop / Restart / Logs / Inspect / Exec / Remove；catalog + `OpenContainer` 跨重启恢复 |
 | **Images** | 拉取弹窗；行内创建容器 / 删除 |
 | **Volumes** | 弹窗创建（1/2/5/10 GiB）；行内删除 |
-| **设置** | 可滚动；语言、主题、会话 CPU / 内存（下次新建会话生效） |
+| **设置** | 可滚动；语言、主题、关闭窗口行为、会话 CPU / 内存（下次新建会话生效）；关于（版本 / GitHub / 检查更新） |
 
-Logs 走 fork 的 `LogsOptions`（底层 `wslc --session wslc-desktop container logs`）。退出应用**不会** `terminate` 会话，便于下次重连。
+Logs 走 fork 的 `LogsOptions`（底层 `wslc --session wslc-desktop container logs`）。关闭窗口可最小化到托盘（容器继续运行），或退出并停止运行中的容器；删除容器时命名卷需单独确认。会话本身不会在退出时 `terminate`，便于下次重连。
 
 ## 从源码构建
 
@@ -54,7 +54,7 @@ cargo test
 ```powershell
 cargo wix
 # 产物：target\wix\WSLc.Desktop-<version>-x86_64.msi
-# 当前 0.1.2：WSLc.Desktop-0.1.2-x86_64.msi
+# 当前 0.1.3：WSLc.Desktop-0.1.3-x86_64.msi
 ```
 
 可选：`cargo wix --no-build`（已有 release 产物时）、`cargo wix --sign`（需 `signtool`）。
@@ -64,9 +64,9 @@ cargo wix
 打 `v*` tag 会触发 [Windows MSI](.github/workflows/windows-msi.yml) 工作流：构建 MSI 并创建 Release 挂载安装包。
 
 ```powershell
-# 版本与 Cargo.toml 对齐，例如 0.1.2 → v0.1.2
-git tag v0.1.2
-git push origin v0.1.2
+# 版本与 Cargo.toml 对齐，例如 0.1.3 → v0.1.3
+git tag v0.1.3
+git push origin v0.1.3
 ```
 
 也可：push / PR 到 `main` 仅上传 artifact；或 Actions → **Windows MSI** → **Run workflow**。

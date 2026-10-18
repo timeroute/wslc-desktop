@@ -16,10 +16,13 @@ use crate::wslc::{
 };
 
 use super::AppView;
-use super::parsing::{parse_bind_mounts, parse_named_volumes, parse_port_mappings};
+use super::parsing::{
+    named_volumes_attached, parse_bind_mounts, parse_named_volumes, parse_port_mappings,
+};
 use super::state::{ConfirmAction, PullPhase};
 use super::widgets::{
-    list_header, modal_panel, modal_scrim, resource_list, resource_row, row_actions, settings_card,
+    list_header, modal_panel, modal_scrim, resource_list, resource_row, row_actions, scroll_log_pane,
+    settings_card,
 };
 
 impl AppView {
@@ -360,7 +363,7 @@ impl AppView {
             return;
         };
         let key = Self::container_key(item);
-        let title = format!("{} · inspect", key);
+        let title = i18n::fmt1(self.t().container_inspect_heading, "name", &key);
         let failed = self.t().container_inspect_failed;
         self.with_busy(cx, move |client| {
             let text = client
@@ -411,7 +414,7 @@ impl AppView {
             return;
         }
         let command = self.exec_input.read(cx).value().to_string();
-        let title = format!("{key} · exec");
+        let title = i18n::fmt1(self.t().container_exec_heading, "name", &key);
         let failed = self.t().container_exec_failed;
         self.exec_modal_open = false;
         self.with_busy(cx, move |client| {
@@ -631,8 +634,15 @@ impl AppView {
                                         } else {
                                             item.name.clone()
                                         };
+                                        let named_volumes =
+                                            named_volumes_attached(&item.volumes, &this.volumes);
                                         this.request_confirm(
-                                            ConfirmAction::RemoveContainer { key, label },
+                                            ConfirmAction::RemoveContainer {
+                                                key,
+                                                label,
+                                                named_volumes,
+                                                remove_volumes: false,
+                                            },
                                             cx,
                                         );
                                     })),
@@ -1098,23 +1108,13 @@ impl AppView {
                         ),
                 )
                 .child(
-                    div()
-                        .id("container-logs-body")
-                        .h(px(320.))
-                        .w_full()
-                        .overflow_y_scroll()
-                        .rounded(cx.theme().radius)
-                        .border_1()
-                        .border_color(cx.theme().border)
-                        .bg(cx.theme().background.opacity(0.65))
-                        .p_2()
-                        .child(
-                            div()
-                                .text_xs()
-                                .font_family("monospace")
-                                .text_color(cx.theme().foreground)
-                                .child(body),
-                        ),
+                    scroll_log_pane("container-logs-body", 320., cx).child(
+                        div()
+                            .text_xs()
+                            .font_family("monospace")
+                            .text_color(cx.theme().foreground)
+                            .child(body),
+                    ),
                 )
                 .child(
                     h_flex().justify_end().child(

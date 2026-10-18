@@ -155,7 +155,6 @@ impl AppView {
             "create-volume-modal",
             cx,
             modal_panel(cx)
-                .w(px(480.))
                 .child(div().font_semibold().text_base().child(t.create_volume_title))
                 .child(
                     div()
@@ -177,7 +176,11 @@ impl AppView {
                             h_flex().gap_2().children(VOLUME_SIZES_GIB.into_iter().map(|gib| {
                                 Button::new(("volume-modal-size", gib as usize))
                                     .small()
-                                    .label(format!("{gib} GiB"))
+                                    .label(crate::i18n::fmt1(
+                                        t.volume_size_gib,
+                                        "gib",
+                                        gib.to_string(),
+                                    ))
                                     .when(size_gib == gib, |b| b.primary())
                                     .disabled(creating)
                                     .on_click(cx.listener(move |this, _, _, cx| {
