@@ -2,6 +2,7 @@
 use gpui_kit::component::{
     ActiveTheme, Sizable as _, StyledExt as _,
     button::{Button, ButtonVariants as _},
+    checkbox::Checkbox,
     h_flex, v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
@@ -32,7 +33,7 @@ impl AppView {
         cx.notify();
     }
 
-    pub(crate) fn toggle_confirm_remove_volumes(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn set_confirm_remove_volumes(&mut self, checked: bool, cx: &mut Context<Self>) {
         if let Some(ConfirmAction::RemoveContainer {
             remove_volumes,
             named_volumes,
@@ -40,7 +41,7 @@ impl AppView {
         }) = self.confirm.as_mut()
         {
             if !named_volumes.is_empty() {
-                *remove_volumes = !*remove_volumes;
+                *remove_volumes = checked;
                 cx.notify();
             }
         }
@@ -165,12 +166,11 @@ impl AppView {
                                     .child(t.confirm_remove_container_volumes_hint),
                             )
                             .child(
-                                Button::new("confirm-toggle-volumes")
-                                    .small()
+                                Checkbox::new("confirm-remove-volumes")
                                     .label(hint)
-                                    .when(selected, |b| b.primary())
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.toggle_confirm_remove_volumes(cx);
+                                    .checked(selected)
+                                    .on_change(cx.listener(|this, checked, _, cx| {
+                                        this.set_confirm_remove_volumes(*checked, cx);
                                     })),
                             ),
                     )
