@@ -110,6 +110,7 @@ pub struct Strings {
     pub create_volume_intro: &'static str,
     pub volume_name_label: &'static str,
     pub volume_name_empty: &'static str,
+    pub volume_already_exists: &'static str,
 
     pub pull_image: &'static str,
     pub pull_hint: &'static str,
@@ -350,6 +351,7 @@ pub static EN: Strings = Strings {
     create_volume_intro: "Creates a dynamic VHD in this desktop session. Pick a size, then create.",
     volume_name_label: "Name",
     volume_name_empty: "Volume name is empty",
+    volume_already_exists: "Volume “{name}” already exists (HRESULT 0x800700B7). It was restored to the list if missing. Pick another name, or delete the volume first.",
 
     pull_image: "Pull image",
     pull_hint: "Enter an image reference and pull",
@@ -582,6 +584,7 @@ pub static ZH: Strings = Strings {
     create_volume_intro: "在本桌面会话中创建动态 VHD。选择容量后创建。",
     volume_name_label: "名称",
     volume_name_empty: "卷名称为空",
+    volume_already_exists: "卷「{name}」已存在（HRESULT 0x800700B7）。若列表里没有，已尝试重新同步。请换个名字，或先删除该卷后再创建。",
 
     pull_image: "拉取镜像",
     pull_hint: "输入镜像引用后拉取",

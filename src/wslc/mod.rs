@@ -10,6 +10,7 @@ use std::thread;
 use anyhow::{Result, anyhow};
 
 mod catalog;
+mod errors;
 #[cfg(windows)]
 mod live;
 mod paths;

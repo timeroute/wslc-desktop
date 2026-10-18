@@ -9,6 +9,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{anyhow, Result};
 
 use super::catalog::{Catalog, PersistedContainer};
+use super::errors::is_already_exists_error;
 use super::prefs::SessionPrefs;
 use super::{
     split_ref, BackendKind, ContainerInfo, CreateContainerRequest, EngineStatus, ImageInfo,
@@ -677,18 +678,38 @@ impl LiveState {
             return Err(anyhow!("volume name is empty"));
         }
         if self.volumes.iter().any(|v| v.name == name) {
-            return Err(anyhow!("volume already exists: {name}"));
+            return Err(anyhow!("__VOLUME_EXISTS__\0{name}"));
         }
         let size_bytes = if size_bytes == 0 {
             DEFAULT_VOLUME_BYTES
         } else {
             size_bytes.max(64 * 1024 * 1024)
         };
-        self.session
-            .create_vhd_volume(
-                wslc::VhdOptions::new(name, size_bytes).vhd_type(wslc::VhdType::Dynamic),
-            )
-            .map_err(|e| anyhow!("{e}"))?;
+        match self.session.create_vhd_volume(
+            wslc::VhdOptions::new(name, size_bytes).vhd_type(wslc::VhdType::Dynamic),
+        ) {
+            Ok(()) => {}
+            Err(err) => {
+                let msg = err.to_string();
+                // HRESULT 0x800700B7 = Win32 ERROR_ALREADY_EXISTS. The VHD can
+                // already live in the session while our local catalog is empty
+                // (partial create, cleared catalog, etc.). Adopt it so the UI
+                // shows the volume again instead of a raw HRESULT.
+                if is_already_exists_error(&msg) {
+                    self.ensure_volume_listed(name, size_bytes);
+                    return Err(anyhow!("__VOLUME_EXISTS__\0{name}"));
+                }
+                return Err(anyhow!("{msg}"));
+            }
+        }
+        self.ensure_volume_listed(name, size_bytes);
+        Ok(())
+    }
+
+    fn ensure_volume_listed(&mut self, name: &str, size_bytes: u64) {
+        if self.volumes.iter().any(|v| v.name == name) {
+            return;
+        }
         self.volumes.insert(
             0,
             VolumeInfo {
@@ -700,7 +721,6 @@ impl LiveState {
             },
         );
         let _ = self.persist_catalog();
-        Ok(())
     }
 
     fn remove_volume(&mut self, name: &str) -> Result<()> {

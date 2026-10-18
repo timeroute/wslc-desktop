@@ -305,7 +305,14 @@ impl AppView {
                     }
                 }
                 Err(err) => {
-                    let msg = i18n::fmt1(self.t().error_prefix, "err", err.to_string());
+                    let raw = err.to_string();
+                    let msg = if let Some(name) = raw.strip_prefix("__VOLUME_EXISTS__\0") {
+                        // Catalog may have been repaired; refresh so the row appears.
+                        self.refresh(cx);
+                        i18n::fmt1(self.t().volume_already_exists, "name", name)
+                    } else {
+                        i18n::fmt1(self.t().error_prefix, "err", raw)
+                    };
                     self.set_status(msg, cx);
                     if self.pending_quit_after_stop {
                         // Still leave so a stuck stop cannot pin the UI forever.
