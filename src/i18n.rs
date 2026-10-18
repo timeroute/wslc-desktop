@@ -231,7 +231,6 @@ pub struct Strings {
     pub close_prompt_body: &'static str,
     pub close_prompt_minimize: &'static str,
     pub close_prompt_quit_stop: &'static str,
-    pub close_prompt_remember: &'static str,
     /// Used by the Windows system-tray menu builder.
     #[cfg_attr(not(windows), allow(dead_code))]
     pub tray_tooltip: &'static str,
@@ -469,10 +468,9 @@ pub static EN: Strings = Strings {
     settings_close_saved: "Close behavior saved",
 
     close_prompt_title: "Close WSLc Desktop",
-    close_prompt_body: "Minimize keeps the manager in the system tray and leaves containers running. Quit and stop shuts down every running container in this session, then exits the app.",
+    close_prompt_body: "Minimize keeps the manager in the system tray and leaves containers running. Quit and stop shuts down every running container in this session, then exits the app. Your choice is saved and can be changed later in Settings.",
     close_prompt_minimize: "Minimize to tray (keep containers)",
     close_prompt_quit_stop: "Quit and stop running containers",
-    close_prompt_remember: "Remember this choice (change anytime in Settings)",
     tray_tooltip: "WSLc Desktop",
     tray_show_window: "Show window",
     tray_quit_keep: "Quit app (keep containers running)",
@@ -702,10 +700,9 @@ pub static ZH: Strings = Strings {
     settings_close_saved: "关闭行为已保存",
 
     close_prompt_title: "关闭 WSLc Desktop",
-    close_prompt_body: "最小化会把管理器收进系统托盘，容器继续运行。「退出并停止」会停止本会话中所有运行中的容器，然后退出应用。",
+    close_prompt_body: "最小化会把管理器收进系统托盘，容器继续运行。「退出并停止」会停止本会话中所有运行中的容器，然后退出应用。本次选择会自动保存，之后可在设置中修改。",
     close_prompt_minimize: "最小化到托盘（容器继续运行）",
     close_prompt_quit_stop: "退出并停止运行中的容器",
-    close_prompt_remember: "记住本次选择（可在设置中修改）",
     tray_tooltip: "WSLc Desktop",
     tray_show_window: "显示窗口",
     tray_quit_keep: "退出应用（容器继续运行）",

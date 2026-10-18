@@ -128,8 +128,9 @@ impl AppView {
                                     .child(t.settings_close_hint),
                             )
                             .child(
-                                v_flex()
+                                h_flex()
                                     .gap_2()
+                                    .flex_wrap()
                                     .child(
                                         Button::new("close-ask")
                                             .small()

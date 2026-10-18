@@ -1,10 +1,9 @@
 
 use gpui_kit::component::{
-    ActiveTheme, Sizable as _, StyledExt as _,
+    ActiveTheme, IconName, Sizable as _, StyledExt as _,
     button::{Button, ButtonVariants as _},
     h_flex, v_flex,
 };
-use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use smol::Timer;
 
@@ -30,7 +29,6 @@ impl AppView {
         match self.session_prefs.close_behavior {
             CloseBehavior::Ask => {
                 self.close_prompt_open = true;
-                self.close_prompt_remember = true;
                 cx.notify();
                 false
             }
@@ -55,19 +53,15 @@ impl AppView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.close_prompt_remember {
-            self.session_prefs.close_behavior = CloseBehavior::MinimizeToTray;
-            let _ = self.persist_close_behavior(cx);
-        }
+        self.session_prefs.close_behavior = CloseBehavior::MinimizeToTray;
+        let _ = self.persist_close_behavior(cx);
         self.close_prompt_open = false;
         self.minimize_to_tray(window, cx);
     }
 
     pub(crate) fn choose_quit_and_stop(&mut self, cx: &mut Context<Self>) {
-        if self.close_prompt_remember {
-            self.session_prefs.close_behavior = CloseBehavior::QuitAndStopContainers;
-            let _ = self.persist_close_behavior(cx);
-        }
+        self.session_prefs.close_behavior = CloseBehavior::QuitAndStopContainers;
+        let _ = self.persist_close_behavior(cx);
         self.close_prompt_open = false;
         self.begin_quit_and_stop_containers(cx);
     }
@@ -174,29 +168,34 @@ impl AppView {
 
     pub(crate) fn render_close_prompt_modal(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let t = self.t();
-        let remember = self.close_prompt_remember;
 
         modal_scrim(
             "close-prompt-modal",
             cx,
             modal_panel(cx)
                 .w(px(480.))
-                .child(div().font_semibold().text_base().child(t.close_prompt_title))
+                .child(
+                    h_flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_3()
+                        .child(div().font_semibold().text_base().child(t.close_prompt_title))
+                        .child(
+                            Button::new("close-prompt-dismiss")
+                                .ghost()
+                                .small()
+                                .icon(IconName::Close)
+                                .tooltip(t.close)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.dismiss_close_prompt(cx);
+                                })),
+                        ),
+                )
                 .child(
                     div()
                         .text_sm()
                         .text_color(cx.theme().muted_foreground)
                         .child(t.close_prompt_body),
-                )
-                .child(
-                    Button::new("close-prompt-remember")
-                        .small()
-                        .label(t.close_prompt_remember)
-                        .when(remember, |b| b.primary())
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.close_prompt_remember = !this.close_prompt_remember;
-                            cx.notify();
-                        })),
                 )
                 .child(
                     v_flex()
@@ -215,16 +214,6 @@ impl AppView {
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.choose_quit_and_stop(cx);
                                 })),
-                        )
-                        .child(
-                            h_flex().justify_end().child(
-                                Button::new("close-prompt-cancel")
-                                    .small()
-                                    .label(t.cancel)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.dismiss_close_prompt(cx);
-                                    })),
-                            ),
                         ),
                 ),
         )
