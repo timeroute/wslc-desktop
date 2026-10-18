@@ -108,7 +108,6 @@ pub fn install(_cx: &mut App) {}
 pub fn refresh_menu(cx: &mut App) {
     #[cfg(windows)]
     {
-        use gpui_kit::Global as _;
         if let Some(tray) = cx.try_global::<windows_tray::AppTray>() {
             let tray = tray.0.clone();
             let _ = tray.refresh_menu(cx);

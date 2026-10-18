@@ -267,7 +267,9 @@ fn show_native_window(window: &mut Window) {
 fn native_hwnd(window: &Window) -> Option<windows_sys::Win32::Foundation::HWND> {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-    let handle = window.window_handle().ok()?;
+    // UFCS: GPUI's `Window::window_handle()` returns `AnyWindowHandle` and shadows
+    // the raw-window-handle trait method of the same name.
+    let handle = HasWindowHandle::window_handle(window).ok()?;
     match handle.as_raw() {
         RawWindowHandle::Win32(win32) => Some(win32.hwnd.get() as _),
         _ => None,
