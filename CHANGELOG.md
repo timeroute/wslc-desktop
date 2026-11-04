@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+### 新增
+
+- 设置页「交流群」：展示微信号 `JavaScript2`，可一键复制；README 补充加群说明与二维码。
+  - Settings → Community: WeChat ID `JavaScript2` with copy; README adds join instructions and QR.
+
 ## [0.1.3] - 2026-10-18
 
 ### 修复

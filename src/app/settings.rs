@@ -22,8 +22,15 @@ use super::AppView;
 
 const CPU_CHOICES: [u32; 5] = [1, 2, 4, 6, 8];
 const MEMORY_CHOICES_MB: [u32; 5] = [1024, 2048, 4096, 8192, 16384];
+/// WeChat ID used to invite users into the community group.
+const WECHAT_ID: &str = "JavaScript2";
 
 impl AppView {
+    fn copy_wechat_id(&mut self, cx: &mut Context<Self>) {
+        cx.write_to_clipboard(ClipboardItem::new_string(WECHAT_ID.to_string()));
+        self.set_status(self.t().settings_community_copied, cx);
+    }
+
     pub(crate) fn save_session_prefs(&mut self, cx: &mut Context<Self>) {
         let prefs = self.session_prefs.clone().clamp();
         self.session_prefs = prefs.clone();
@@ -395,6 +402,36 @@ impl AppView {
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
                                     .child(releases_url()),
+                            ),
+                    )
+                    .child(
+                        settings_card_section(t.settings_community, t.settings_community_hint, cx)
+                            .child(
+                                div().text_sm().child(i18n::fmt1(
+                                    t.settings_community_intro,
+                                    "id",
+                                    WECHAT_ID,
+                                )),
+                            )
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .items_center()
+                                    .flex_wrap()
+                                    .child(
+                                        div().text_sm().child(format!(
+                                            "{}  {}",
+                                            t.settings_community_wechat_id, WECHAT_ID
+                                        )),
+                                    )
+                                    .child(
+                                        Button::new("community-copy-wechat")
+                                            .small()
+                                            .label(t.settings_community_copy)
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.copy_wechat_id(cx);
+                                            })),
+                                    ),
                             ),
                     ),
             )
